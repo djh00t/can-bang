@@ -267,6 +267,25 @@ export function docsRoutes(services: AppServices): express.Router {
       } else if (access.role !== 'edit') {
         throw forbidden('the edit key is required to delete an anonymous document')
       }
+      // Cascade: remove dependent records, then the doc.
+      const hookIds = (
+        db.prepare('SELECT id FROM hooks WHERE doc_id=?').all(doc.id) as { id: string }[]
+      ).map((h) => h.id)
+      for (const hid of hookIds) db.prepare('DELETE FROM outbox WHERE hook_id=?').run(hid)
+      db.prepare('DELETE FROM hooks WHERE doc_id=?').run(doc.id)
+      db.prepare('DELETE FROM shares WHERE doc_id=?').run(doc.id)
+      db.prepare('DELETE FROM revisions WHERE doc_id=?').run(doc.id)
+      db.prepare('DELETE FROM events WHERE doc_id=?').run(doc.id)
+      db.prepare('DELETE FROM comments WHERE doc_id=?').run(doc.id)
+      db.prepare('DELETE FROM suggestions WHERE doc_id=?').run(doc.id)
+      db.prepare('DELETE FROM asks WHERE doc_id=?').run(doc.id)
+      db.prepare('DELETE FROM notify_log WHERE doc_id=?').run(doc.id)
+      db.prepare('DELETE FROM feedback WHERE doc_id=?').run(doc.id)
+      db.prepare('UPDATE tasks SET doc_id=NULL WHERE doc_id=?').run(doc.id)
+      db.prepare('UPDATE projects SET doc_id=NULL WHERE doc_id=?').run(doc.id)
+      db.prepare('UPDATE phases SET doc_id=NULL WHERE doc_id=?').run(doc.id)
+      db.prepare('UPDATE releases SET doc_id=NULL WHERE doc_id=?').run(doc.id)
+      db.prepare('UPDATE assets SET doc_id=NULL WHERE doc_id=?').run(doc.id)
       db.prepare('DELETE FROM docs WHERE id=?').run(doc.id)
       res.json({ ok: true })
     }),
@@ -299,8 +318,9 @@ export function docsRoutes(services: AppServices): express.Router {
     asyncHandler((req: Request, res: Response) => {
       const doc = getDoc(db, req.params.id!)
       const access = resolveAccess(db, req, doc.id)
-      if (!access.identity.accountId)
-        throw new ApiError(401, 'account required', 'Duplicate needs a signed-in account.')
+      if (!access.identity.accountId || access.role !== 'owner') {
+        throw forbidden('only the owner can duplicate this document')
+      }
       const id = randomId(22)
       db.prepare(
         'INSERT INTO docs (id, title, kind, owner_id, content, created_at, updated_at) VALUES (?,?,?,?,?,?,?)',

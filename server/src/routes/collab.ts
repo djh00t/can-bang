@@ -447,18 +447,30 @@ export function collabRoutes(services: AppServices): express.Router {
       touchAgent(db, access)
       let content = doc.content
       if (action === 'accept') {
-        const apply = (row: typeof s) => {
-          if (row.type === 'delete' && row.find) {
-            const idx = content.indexOf(row.find)
-            if (idx >= 0) content = content.slice(0, idx) + content.slice(idx + row.find.length)
-          } else if (row.type === 'insert' && row.text !== null) {
-            content = `${content}\n${row.text}`
-          }
-        }
         const pair = s.pair_id
           ? (db.prepare('SELECT * FROM suggestions WHERE pair_id=?').all(s.pair_id) as (typeof s)[])
           : [s]
-        for (const row of pair) apply(row)
+        const isReplace =
+          pair.length === 2 &&
+          pair.some((r) => r.type === 'delete') &&
+          pair.some((r) => r.type === 'insert')
+        if (isReplace) {
+          const del = pair.find((r) => r.type === 'delete')
+          const ins = pair.find((r) => r.type === 'insert')
+          if (del?.find && ins?.text !== null) {
+            content = content.replace(del.find, ins?.text ?? '')
+          }
+        } else {
+          const apply = (row: typeof s) => {
+            if (row.type === 'delete' && row.find) {
+              const idx = content.indexOf(row.find)
+              if (idx >= 0) content = content.slice(0, idx) + content.slice(idx + row.find.length)
+            } else if (row.type === 'insert' && row.text !== null) {
+              content = `${content}\n${row.text}`
+            }
+          }
+          for (const row of pair) apply(row)
+        }
         db.prepare(
           "UPDATE suggestions SET status='accepted' WHERE id=? OR (pair_id=? AND pair_id IS NOT NULL)",
         ).run(s.id, s.pair_id)

@@ -74,6 +74,10 @@ describe('accounts and org', () => {
       .get(`/api/folders/${rootId}`)
       .set('x-share-key', folderKey)
     expect(detail.status).toBe(200)
+    const { agent: outsider } = await account(ctx.app, 'folder-outsider')
+    const secrets = await outsider.get(`/api/folders/${rootId}/shares`)
+    expect(secrets.status).toBe(404)
+    expect(secrets.body.shares).toBeUndefined()
     const deleteFolder = await agent.delete(`/api/folders/${child.body.folder.id}`)
     expect(deleteFolder.status).toBe(200)
     const afterDelete = await agent.get('/api/docs')
@@ -154,7 +158,9 @@ describe('accounts and org', () => {
       .set('x-share-key', key)
       .send({ text: 'ping' })
     await ctx.services.drainWebhooks()
-    await new Promise((r) => setTimeout(r, 100))
+    for (let i = 0; i < 50 && !received; i++) {
+      await new Promise((r) => setTimeout(r, 20))
+    }
     expect(received).toBeTruthy()
     expect(JSON.parse(received!.body).type).toBe('chat.message')
     const sig = received!.headers['x-margin-signature'] as string

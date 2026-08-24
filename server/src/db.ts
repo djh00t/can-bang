@@ -241,6 +241,7 @@ CREATE TABLE IF NOT EXISTS projects (
   github_repo TEXT,
   github_token TEXT,
   github_sync INTEGER NOT NULL DEFAULT 0,
+  board_indexed_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -300,6 +301,13 @@ CREATE TABLE IF NOT EXISTS pr_watch (
   updated_at INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
   UNIQUE (project_id, pr_number)
+);
+CREATE TABLE IF NOT EXISTS project_keys (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  key_hash TEXT NOT NULL UNIQUE,
+  label TEXT,
+  created_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS skill_releases (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -363,6 +371,7 @@ export function openDb(path: string): Db {
   ensureColumn(db, 'projects', 'github_repo', 'github_repo TEXT')
   ensureColumn(db, 'projects', 'github_token', 'github_token TEXT')
   ensureColumn(db, 'projects', 'github_sync', 'github_sync INTEGER NOT NULL DEFAULT 0')
+  ensureColumn(db, 'projects', 'board_indexed_at', 'board_indexed_at INTEGER')
   ensureColumn(db, 'phases', 'doc_id', 'doc_id TEXT REFERENCES docs(id)')
   ensureColumn(db, 'tasks', 'description', 'description TEXT')
   ensureColumn(db, 'tasks', 'blockers', 'blockers TEXT')

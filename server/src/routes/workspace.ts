@@ -6,7 +6,7 @@ import { resolveAccess } from '../auth.js'
 import { asyncHandler } from '../util.js'
 import { now } from '@can-bang/core'
 import { realGh, syncProjectGithub } from '../github.js'
-import { syncProjectBoard } from '../board-sync.js'
+import { appendCard, reindexBoard, reindexIfStale, updateCard } from '../board-sync.js'
 import { bumpContent } from '../db.js'
 
 export interface ProjectRow {
@@ -278,7 +278,7 @@ state: building
     asyncHandler((req: Request, res: Response) => {
       const accountId = accountIdOf(req)
       const project = projectOf(db, accountId, req.params.id!)
-      syncProjectBoard(db, project.id)
+      reindexIfStale(db, project.id)
       const phases = db
         .prepare('SELECT * FROM phases WHERE project_id=? ORDER BY ord ASC')
         .all(project.id) as PhaseRow[]
@@ -423,6 +423,7 @@ state: building
     asyncHandler((req: Request, res: Response) => {
       const accountId = accountIdOf(req)
       const phase = phaseOf(db, accountId, req.params.id!)
+      reindexIfStale(db, phase.project_id)
       const days = Math.min(Math.max(Number(req.query.days ?? 30), 2), 90)
       res.json(burndown(db, phase.id, days))
     }),
@@ -470,6 +471,7 @@ state: building
       if (!project.github_repo || !project.github_token) {
         throw badRequest('github not configured', 'Enable GitHub sync on the project first.')
       }
+      reindexIfStale(db, project.id)
       try {
         const summary = await syncProjectGithub(db, project.id, realGh(project.github_token))
         db.prepare('UPDATE projects SET github_sync=1, updated_at=? WHERE id=?').run(
@@ -542,6 +544,7 @@ state: building
       const accountId = accountIdOf(req)
       const release = releaseOf(db, accountId, req.params.id!)
       const phase = db.prepare('SELECT * FROM phases WHERE id=?').get(release.phase_id) as PhaseRow
+      reindexIfStale(db, phase.project_id)
       const project = db
         .prepare('SELECT * FROM projects WHERE id=?')
         .get(phase.project_id) as ProjectRow
@@ -586,6 +589,39 @@ state: building
         ? req.body.status
         : 'todo'
       const id = randomId(14)
+      const assignee =
+        typeof req.body?.assignee === 'string' ? req.body.assignee.slice(0, 40) : null
+      const feature = typeof req.body?.feature === 'string' ? req.body.feature.slice(0, 80) : null
+      const doneMeans =
+        typeof req.body?.done_means === 'string' ? req.body.done_means.slice(0, 500) : null
+      const description =
+        typeof req.body?.description === 'string' ? req.body.description.slice(0, 2000) : null
+      const blockers =
+        typeof req.body?.blockers === 'string' ? req.body.blockers.slice(0, 500) : null
+      const taskDocId = typeof req.body?.doc_id === 'string' ? req.body.doc_id.slice(0, 40) : null
+      const project = db
+        .prepare('SELECT id, doc_id FROM projects WHERE id=?')
+        .get(phase.project_id) as {
+        id: string
+        doc_id: string | null
+      }
+      const release =
+        (
+          db.prepare('SELECT name FROM releases WHERE phase_id=? LIMIT 1').get(phase.id) as
+            { name: string } | undefined
+        )?.name ?? null
+      if (project.doc_id) {
+        appendCard(db, project.doc_id, id, {
+          title,
+          status,
+          phaseName: phase.name,
+          assignee,
+          feature,
+          doneMeans,
+          release,
+        })
+      }
+      // description/blockers/doc link live on the task row (task metadata, not the card)
       db.prepare(
         `INSERT INTO tasks (id, phase_id, title, status, assignee, feature, done_means, description, blockers, doc_id, created_at, updated_at)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -594,17 +630,17 @@ state: building
         phase.id,
         title,
         status,
-        typeof req.body?.assignee === 'string' ? req.body.assignee.slice(0, 40) : null,
-        typeof req.body?.feature === 'string' ? req.body.feature.slice(0, 80) : null,
-        typeof req.body?.done_means === 'string' ? req.body.done_means.slice(0, 500) : null,
-        typeof req.body?.description === 'string' ? req.body.description.slice(0, 2000) : null,
-        typeof req.body?.blockers === 'string' ? req.body.blockers.slice(0, 500) : null,
-        typeof req.body?.doc_id === 'string' ? req.body.doc_id.slice(0, 40) : null,
+        assignee,
+        feature,
+        doneMeans,
+        description,
+        blockers,
+        taskDocId,
         now(),
         now(),
       )
       recordTaskEvent(db, id, phase.id, status, now())
-      syncProjectBoard(db, phase.project_id)
+      reindexBoard(db, phase.project_id)
       res.status(201).json({ task: { id, title, status } })
     }),
   )
@@ -653,15 +689,30 @@ state: building
           : typeof req.body?.doc_id === 'string'
             ? req.body.doc_id.slice(0, 40)
             : undefined
+      const title =
+        req.body?.title === null
+          ? null
+          : typeof req.body?.title === 'string'
+            ? req.body.title.trim().slice(0, 200)
+            : undefined
+      const doneMeans =
+        req.body?.done_means === null
+          ? null
+          : typeof req.body?.done_means === 'string'
+            ? req.body.done_means.trim().slice(0, 500)
+            : undefined
       if (status && status !== task.status)
         recordTaskEvent(db, task.id, task.phase_id, status, now())
       db.prepare(
-        `UPDATE tasks SET status=COALESCE(?, status), assignee=COALESCE(?, assignee), feature=COALESCE(?, feature),
+        `UPDATE tasks SET status=COALESCE(?, status), title=COALESCE(?, title), assignee=COALESCE(?, assignee),
+           feature=COALESCE(?, feature), done_means=COALESCE(?, done_means),
            description=COALESCE(?, description), blockers=COALESCE(?, blockers), doc_id=COALESCE(?, doc_id), updated_at=? WHERE id=?`,
       ).run(
         status ?? null,
+        title ?? null,
         assignee ?? null,
         feature ?? null,
+        doneMeans ?? null,
         description ?? null,
         blockers ?? null,
         docId ?? null,
@@ -673,7 +724,19 @@ state: building
         .get(task.phase_id) as {
         project_id: string
       }
-      syncProjectBoard(db, projectRow.project_id)
+      const projectDoc = db
+        .prepare('SELECT doc_id FROM projects WHERE id=?')
+        .get(projectRow.project_id) as { doc_id: string | null }
+      if (projectDoc.doc_id) {
+        updateCard(db, projectDoc.doc_id, task.id, {
+          ...(status ? { status } : {}),
+          ...(title !== undefined ? { title: title ?? undefined } : {}),
+          ...(assignee !== undefined ? { assignee } : {}),
+          ...(feature !== undefined ? { feature } : {}),
+          ...(doneMeans !== undefined ? { doneMeans } : {}),
+        })
+      }
+      reindexBoard(db, projectRow.project_id)
       res.json({ ok: true })
     }),
   )
@@ -690,6 +753,7 @@ state: building
         .get(req.params.id!, accountId) as TaskRow | undefined
       if (!task) throw notFound('task not found')
       const phase = db.prepare('SELECT * FROM phases WHERE id=?').get(task.phase_id) as PhaseRow
+      reindexIfStale(db, phase.project_id)
       const project = db
         .prepare('SELECT * FROM projects WHERE id=?')
         .get(phase.project_id) as ProjectRow
@@ -718,6 +782,7 @@ state: building
     asyncHandler((req: Request, res: Response) => {
       const accountId = accountIdOf(req)
       const project = projectOf(db, accountId, req.params.id!)
+      reindexIfStale(db, project.id)
       const phases = db
         .prepare('SELECT * FROM phases WHERE project_id=? ORDER BY ord ASC')
         .all(project.id) as PhaseRow[]

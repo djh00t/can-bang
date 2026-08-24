@@ -548,7 +548,11 @@ export function orgRoutes(services: AppServices): express.Router {
   r.get(
     '/api/folders/:id/shares',
     asyncHandler((req: Request, res: Response) => {
-      requireAccount(services, req)
+      const accountId = requireAccount(services, req)
+      const folder = db
+        .prepare('SELECT id FROM folders WHERE id=? AND owner_id=?')
+        .get(req.params.id!, accountId)
+      if (!folder) throw notFound('folder not found')
       const rows = db
         .prepare(
           'SELECT secret, role, created_at FROM folder_shares WHERE folder_id=? AND revoked_at IS NULL',
@@ -561,7 +565,11 @@ export function orgRoutes(services: AppServices): express.Router {
   r.delete(
     '/api/folders/:id/shares/:secret',
     asyncHandler((req: Request, res: Response) => {
-      requireAccount(services, req)
+      const accountId = requireAccount(services, req)
+      const folder = db
+        .prepare('SELECT id FROM folders WHERE id=? AND owner_id=?')
+        .get(req.params.id!, accountId)
+      if (!folder) throw notFound('folder not found')
       db.prepare('UPDATE folder_shares SET revoked_at=? WHERE folder_id=? AND secret=?').run(
         now(),
         req.params.id!,

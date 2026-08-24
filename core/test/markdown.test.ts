@@ -56,6 +56,8 @@ describe('markdown model', () => {
     expect(lines[0]!.name).toBe('jake')
     const updated = appendFenceLine(DOC, fence, '- 2026-07-04T15:00Z @claude (agent): on it')
     expect(updated).toContain('@claude (agent): on it')
+    const updatedFence = findFence(updated, 'chat', 'general')!
+    expect(parseChat(updatedFence.body).some((line) => line.name === 'claude')).toBe(true)
   })
 
   it('reads status state and replaces fence bodies', () => {

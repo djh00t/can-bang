@@ -148,6 +148,23 @@ describe('docs core', () => {
     const dup = await agent.post(`/api/docs/${id}/duplicate`).send({})
     expect(dup.status).toBe(201)
     expect(dup.body.doc.id).not.toBe(id)
+
+    const { agent: privateOwner } = await account(ctx.app, 'private-owner')
+    const privateDoc = await privateOwner
+      .post('/api/docs')
+      .send({ title: 'Private', content: '# Private\n' })
+    const { agent: outsider } = await account(ctx.app, 'private-outsider')
+    const denied = await outsider.post(`/api/docs/${privateDoc.body.doc.id}/duplicate`).send({})
+    expect(denied.status).toBe(403)
+  })
+
+  it('deletes documents and their dependent records', async () => {
+    const { id, key } = await anonDoc(ctx.app, '# Delete me\n')
+    const deleted = await request(ctx.app).delete(`/api/docs/${id}`).set('x-share-key', key)
+    expect(deleted.status).toBe(200)
+    expect(ctx.db.prepare('SELECT id FROM docs WHERE id=?').get(id)).toBeUndefined()
+    expect(ctx.db.prepare('SELECT id FROM revisions WHERE doc_id=?').all(id)).toHaveLength(0)
+    expect(ctx.db.prepare('SELECT secret FROM shares WHERE doc_id=?').all(id)).toHaveLength(0)
   })
 
   it('lists owned docs and reports unclaimed metadata', async () => {

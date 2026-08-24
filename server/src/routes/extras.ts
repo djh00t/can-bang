@@ -104,6 +104,13 @@ export function extrasRoutes(services: AppServices): express.Router {
       const title = typeof req.body?.title === 'string' ? req.body.title.slice(0, 120) : ''
       const content = typeof req.body?.content === 'string' ? req.body.content : ''
       if (!slug || !title || !content) throw badRequest('slug, title, and content required')
+      if (templateContent(slug))
+        throw new ApiError(409, 'slug taken', 'That template slug is reserved.')
+      const existing = db.prepare('SELECT owner_id FROM templates WHERE slug=?').get(slug) as
+        { owner_id: string | null } | undefined
+      if (existing && existing.owner_id !== access.identity.accountId) {
+        throw new ApiError(409, 'slug taken', 'That template slug belongs to another account.')
+      }
       const scope = req.body?.scope === 'global' ? 'global' : 'account'
       db.prepare(
         `INSERT INTO templates (slug, title, description, category, content, owner_id, scope, created_at)
@@ -206,6 +213,9 @@ export function extrasRoutes(services: AppServices): express.Router {
   r.post(
     '/api/widgets/:slug/review',
     asyncHandler((req: Request, res: Response) => {
+      const access = resolveAccess(db, req, '')
+      if (!access.identity.accountId)
+        throw new ApiError(401, 'account required', 'Sign in to review widgets.')
       const status = req.body?.status
       if (!['approved', 'rejected'].includes(status))
         throw badRequest('status must be approved or rejected')

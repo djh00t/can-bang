@@ -99,7 +99,8 @@ describe('collaboration', () => {
       .send({ action: 'accept' })
     expect(accept.status).toBe(200)
     const content = await request(ctx.app).get(`/api/docs/${id}/content`).set('x-share-key', key)
-    expect(content.text).toContain('with retries')
+    expect(content.text).toContain('- [ ] Ship the API with retries @builder-1 #p1')
+    expect(content.text.endsWith('\nShip the API with retries')).toBe(false)
   })
 
   it('keeps revisions, pages them, and restores', async () => {

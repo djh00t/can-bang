@@ -76,6 +76,15 @@ describe('pages, handoff, and 0.3 extras', () => {
     expect(ownerList.body.templates.some((t: { slug: string }) => t.slug === 'team-playbook')).toBe(
       true,
     )
+    const { agent: other } = await account(ctx.app, 'other-user')
+    const conflict = await other.post('/api/templates').send({
+      slug: 'team-playbook',
+      title: 'Hijacked Playbook',
+      content: '# Hijacked\n',
+    })
+    expect(conflict.status).toBe(409)
+    const preserved = await agent.get('/api/templates/team-playbook')
+    expect(preserved.body.content).toBe('# Playbook\n')
     const published = await agent
       .post('/api/templates/team-playbook/publish')
       .send({ scope: 'global' })
@@ -84,7 +93,6 @@ describe('pages, handoff, and 0.3 extras', () => {
     expect(anonAfter.body.templates.some((t: { slug: string }) => t.slug === 'team-playbook')).toBe(
       true,
     )
-    const { agent: other } = await account(ctx.app, 'other-user')
     const denied = await other
       .post('/api/templates/team-playbook/publish')
       .send({ scope: 'account' })
@@ -105,6 +113,10 @@ describe('pages, handoff, and 0.3 extras', () => {
       html: '<script src="https://evil.example/x.js"></script>',
     })
     expect(flagged.body.lintFlags).toContain('external-script')
+    const anonymousReview = await request(ctx.app)
+      .post('/api/widgets/sneaky/review')
+      .send({ status: 'approved' })
+    expect(anonymousReview.status).toBe(401)
     const { agent } = await account(ctx.app, 'widget-owner')
     const approved = await agent.post('/api/widgets/vote/review').send({ status: 'approved' })
     expect(approved.status).toBe(200)

@@ -184,7 +184,15 @@ describe('workspace hierarchy', () => {
     const overview = await agent.get(`/api/projects/${pid}`)
     const docId = overview.body.project.docId as string
     let content = (await agent.get(`/api/docs/${docId}/content`)).text
-    content = content.replace('## Todo\n- [ ] Claim me', '## Doing\n- [>] Claim me')
+    // Agent claims the card: move it under Doing with a [>] marker (clean fence edit).
+    const fenceStart = content.indexOf('```board')
+    const fenceEnd = content.indexOf('```', fenceStart + 3)
+    content =
+      content.slice(0, fenceStart) +
+      '```board #tickets\n## Doing\n- [>] Claim me\n  task: ' +
+      taskId +
+      '\n  phase: P1\n## Todo\n## Testing\n## Done\n```' +
+      content.slice(fenceEnd + 3)
     const version = (await agent.get(`/api/docs/${docId}/content`)).headers[
       'x-doc-version'
     ] as string
