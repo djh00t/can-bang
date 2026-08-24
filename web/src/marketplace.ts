@@ -14,7 +14,8 @@ function escapeHtml(value: string): string {
   return value.replace(
     /[&<>"']/g,
     (character) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ?? character,
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] ??
+      character,
   )
 }
 
@@ -72,8 +73,11 @@ export async function mountMarketplace(root: HTMLElement, kind: MarketplaceKind)
   try {
     const response = await fetch(`/api/${kind}`)
     if (!response.ok) throw new Error(`Request failed (${response.status})`)
-    const body = (await response.json()) as { widgets?: MarketplaceItem[]; templates?: MarketplaceItem[] }
-    const items = kind === 'widgets' ? body.widgets ?? [] : body.templates ?? []
+    const body = (await response.json()) as {
+      widgets?: MarketplaceItem[]
+      templates?: MarketplaceItem[]
+    }
+    const items = kind === 'widgets' ? (body.widgets ?? []) : (body.templates ?? [])
     root.innerHTML = renderMarketplace(kind, items)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
