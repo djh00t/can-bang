@@ -340,6 +340,12 @@ describe('workspace hierarchy', () => {
       .prepare("SELECT COUNT(*) AS c FROM task_events WHERE task_id=? AND status='done'")
       .get(taskId) as { c: number }
     expect(doneEvent.c).toBeGreaterThan(0)
+    const watermark = ctx.db
+      .prepare(
+        'SELECT p.board_indexed_at, d.updated_at FROM projects p JOIN docs d ON d.id=p.doc_id WHERE p.id=?',
+      )
+      .get(pid) as { board_indexed_at: number; updated_at: number }
+    expect(watermark.board_indexed_at).toBe(watermark.updated_at)
   })
 
   it('reindexes a doc board edit made in the same millisecond', async () => {
