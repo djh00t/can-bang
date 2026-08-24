@@ -207,6 +207,7 @@ export function reindexBoard(
         .prepare('SELECT * FROM tasks WHERE phase_id IN (SELECT id FROM phases WHERE project_id=?)')
         .all(projectId) as {
         id: string
+        phase_id: string
         status: string
         title: string
         assignee: string | null

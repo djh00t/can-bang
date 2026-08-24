@@ -10,6 +10,7 @@ import { escalateAsks } from './routes/asks.js'
 import {
   dedupeSeededProjects,
   backfillProjectDocs,
+  backfillTaskEvents,
   renameSeededProjects,
   repairSeededSkills,
   seedSkillsIfFirst,
@@ -125,6 +126,7 @@ async function main(): Promise<void> {
   dedupeSeededProjects(db)
   renameSeededProjects(db)
   backfillProjectDocs(db)
+  backfillTaskEvents(db)
 
   services.startWebhookLoop()
   const escalationTimer = setInterval(() => {

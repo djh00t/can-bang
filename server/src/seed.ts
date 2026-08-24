@@ -432,3 +432,35 @@ state: building
     db.prepare('UPDATE projects SET doc_id=? WHERE id=?').run(docId, p.id)
   }
 }
+
+/** Create burndown events for tasks seeded before event recording existed. */
+export function backfillTaskEvents(db: Db): void {
+  const rows = db
+    .prepare(
+      `SELECT t.id, t.phase_id, t.status, t.created_at, t.updated_at FROM tasks t
+       WHERE NOT EXISTS (SELECT 1 FROM task_events e WHERE e.task_id = t.id)`,
+    )
+    .all() as {
+    id: string
+    phase_id: string
+    status: string
+    created_at: number
+    updated_at: number
+  }[]
+  for (const t of rows) {
+    db.prepare('INSERT INTO task_events (task_id, phase_id, status, ts) VALUES (?,?,?,?)').run(
+      t.id,
+      t.phase_id,
+      t.status === 'done' ? 'todo' : t.status,
+      t.created_at,
+    )
+    if (t.status === 'done') {
+      db.prepare('INSERT INTO task_events (task_id, phase_id, status, ts) VALUES (?,?,?,?)').run(
+        t.id,
+        t.phase_id,
+        'done',
+        t.updated_at || t.created_at + 1,
+      )
+    }
+  }
+}
