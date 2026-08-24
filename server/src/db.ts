@@ -288,6 +288,18 @@ CREATE TABLE IF NOT EXISTS task_events (
   status TEXT NOT NULL,
   ts INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS pr_watch (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL REFERENCES projects(id),
+  repo TEXT NOT NULL,
+  pr_number INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  url TEXT NOT NULL,
+  state TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE (project_id, pr_number)
+);
 CREATE TABLE IF NOT EXISTS skill_releases (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   folder_id TEXT NOT NULL REFERENCES folders(id),
@@ -331,6 +343,7 @@ CREATE INDEX IF NOT EXISTS idx_phases_project ON phases(project_id);
 CREATE INDEX IF NOT EXISTS idx_releases_phase ON releases(phase_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_phase ON tasks(phase_id);
 CREATE INDEX IF NOT EXISTS idx_task_events_phase ON task_events(phase_id, ts);
+CREATE INDEX IF NOT EXISTS idx_pr_watch_project ON pr_watch(project_id);
 `
 
 export type Db = Database.Database

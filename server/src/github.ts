@@ -62,7 +62,7 @@ export async function syncProjectGithub(
   db: Db,
   projectId: string,
   gh: GhClient,
-): Promise<{ created: number; updated: number; closed: number; imported: number }> {
+): Promise<{ created: number; updated: number; closed: number; imported: number; prs: number }> {
   const project = db.prepare('SELECT * FROM projects WHERE id=?').get(projectId) as
     { github_repo: string | null; github_token: string | null } | undefined
   if (!project?.github_repo || !project.github_token) {
@@ -86,6 +86,7 @@ export async function syncProjectGithub(
   let created = 0
   let updated = 0
   let closed = 0
+  let prs = 0
   for (const task of tasks) {
     const body = issueBody(task)
     if (!task.github_issue_id) {
@@ -168,5 +169,36 @@ export async function syncProjectGithub(
     )
     imported++
   }
-  return { created, updated, closed, imported }
+
+  // Pull requests needing human attention (review/merge) feed the inbox.
+  const pulls = await gh.get(`/repos/${repo}/pulls?state=open&per_page=50`)
+  const pullList = Array.isArray(pulls.json)
+    ? (pulls.json as {
+        number: number
+        title: string
+        state: string
+        html_url: string
+        draft?: boolean
+      }[])
+    : []
+  const openNumbers = new Set<number>()
+  for (const pr of pullList) {
+    openNumbers.add(pr.number)
+    db.prepare(
+      `INSERT INTO pr_watch (project_id, repo, pr_number, title, url, state, updated_at, created_at)
+       VALUES (?,?,?,?,?,?,?,?)
+       ON CONFLICT(project_id, pr_number) DO UPDATE SET title=excluded.title, url=excluded.url, state=excluded.state, updated_at=excluded.updated_at`,
+    ).run(projectId, repo, pr.number, pr.title, pr.html_url, pr.state, Date.now(), Date.now())
+  }
+  prs = pullList.length
+  const watched = db
+    .prepare('SELECT id, pr_number FROM pr_watch WHERE project_id=?')
+    .all(projectId) as {
+    id: number
+    pr_number: number
+  }[]
+  for (const w of watched) {
+    if (!openNumbers.has(w.pr_number)) db.prepare('DELETE FROM pr_watch WHERE id=?').run(w.id)
+  }
+  return { created, updated, closed, imported, prs }
 }

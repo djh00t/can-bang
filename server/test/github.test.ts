@@ -128,4 +128,38 @@ describe('github issues sync', () => {
       .send({ enabled: true, repo: 'x/y' })
     expect(denied.status).toBe(404)
   })
+
+  it('watches open pull requests into the needs-human inbox', async () => {
+    const { agent } = await account(ctx.app, 'pr-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'PRs' })).body.project.id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P' })).body.phase
+      .id as string
+    await agent.post(`/api/phases/${phaseId}/tasks`).send({ title: 'Something' })
+    await agent
+      .patch(`/api/projects/${pid}/github`)
+      .send({ enabled: true, repo: 'djh00t/can-bang', token: 'ghp_test' })
+    const gh = fakeGh({
+      get: async (path) =>
+        path.includes('/pulls')
+          ? {
+              status: 200,
+              json: [
+                {
+                  number: 22,
+                  title: 'feat: CanBang branding',
+                  state: 'open',
+                  html_url: 'https://github.com/djh00t/can-bang/pull/22',
+                },
+              ],
+            }
+          : { status: 200, json: [] },
+    })
+    const summary = await syncProjectGithub(ctx.db, pid, gh)
+    expect(summary.prs).toBe(1)
+    const inbox = await agent.get('/api/inbox')
+    const pr = inbox.body.items.find((i: { type: string }) => i.type === 'pr')
+    expect(pr).toBeTruthy()
+    expect(pr.message).toContain('CanBang branding')
+    expect(pr.url).toContain('pull/22')
+  })
 })

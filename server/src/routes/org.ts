@@ -209,6 +209,7 @@ export function orgRoutes(services: AppServices): express.Router {
         message: string
         ts: number
         level?: string
+        url?: string
       }[] = []
       const awaiting = db.prepare('SELECT * FROM docs WHERE owner_id=?').all(accountId) as DocRow[]
       for (const d of awaiting) {
@@ -255,6 +256,30 @@ export function orgRoutes(services: AppServices): express.Router {
           message: l.message,
           ts: l.created_at,
           level: l.level,
+        })
+      }
+      const prs = db
+        .prepare(
+          `SELECT p.id AS project_id, p.name AS project_name, w.pr_number, w.title, w.url, w.updated_at
+           FROM pr_watch w JOIN projects p ON p.id = w.project_id
+           WHERE p.owner_id=? ORDER BY w.updated_at DESC`,
+        )
+        .all(accountId) as {
+        project_id: string
+        project_name: string
+        pr_number: number
+        title: string
+        url: string
+        updated_at: number
+      }[]
+      for (const pr of prs) {
+        items.push({
+          docId: pr.project_id,
+          title: `${pr.project_name} · PR #${pr.pr_number}`,
+          type: 'pr',
+          message: pr.title,
+          ts: pr.updated_at,
+          url: pr.url,
         })
       }
       items.sort((a, b) => b.ts - a.ts)

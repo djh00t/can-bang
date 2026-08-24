@@ -308,7 +308,14 @@ export class Api {
   }
 
   async inbox(): Promise<{
-    items: { docId: string; title: string; type: string; message: string; ts: number }[]
+    items: {
+      docId: string
+      title: string
+      type: string
+      message: string
+      ts: number
+      url?: string
+    }[]
   }> {
     const res = await this.request('/api/inbox')
     return res.json()
@@ -381,9 +388,14 @@ export class Api {
     return res.json()
   }
 
-  async syncGithub(
-    projectId: string,
-  ): Promise<{ ok: boolean; created: number; updated: number; closed: number; imported: number }> {
+  async syncGithub(projectId: string): Promise<{
+    ok: boolean
+    created: number
+    updated: number
+    closed: number
+    imported: number
+    prs: number
+  }> {
     const res = await this.request(`/api/projects/${projectId}/sync-github`, {
       method: 'POST',
       body: '{}',

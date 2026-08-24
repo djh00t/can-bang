@@ -207,7 +207,14 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   let data: ProjectData | null = null
   let matrixData: MatrixData | null = null
   let releaseDetail: Awaited<ReturnType<Api['releaseDetail']>> | null = null
-  let inbox: { docId: string; title: string; type: string; message: string; ts: number }[] = []
+  let inbox: {
+    docId: string
+    title: string
+    type: string
+    message: string
+    ts: number
+    url?: string
+  }[] = []
   let taskId: string | null = null
   let taskDetail: Awaited<ReturnType<Api['taskDetail']>> | null = null
   const burndownCache = new Map<string, Awaited<ReturnType<Api['phaseBurndown']>>>()
@@ -217,6 +224,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     lines: { ts: string; name: string; text: string; kind?: string }[]
   } | null = null
   let skills: { slug: string; name: string; category: string; installs: number }[] = []
+  let agentPrompt: { link: string; text: string } | null = null
 
   const isOpen = (key: string) => expanded.has(key)
   const toggle = (key: string) => {
@@ -525,14 +533,18 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
 
   const renderInbox = () => `
     <div class="ws-inbox panel">
-      <h3>Inbox · needs you</h3>
+      <h3>Needs human attention</h3>
       ${
         inbox.length
           ? inbox
               .slice(0, 6)
               .map(
                 (i) =>
-                  `<div class="ws-inbox-item"><a href="/d/${i.docId}">${escapeHtml(i.title)}</a> <span class="tag">${escapeHtml(i.type)}</span><div class="muted small">${escapeHtml(i.message.slice(0, 90))}</div></div>`,
+                  `<div class="ws-inbox-item">${
+                    i.url
+                      ? `<a href="${escapeHtml(i.url)}" target="_blank" rel="noopener">${escapeHtml(i.title)}</a>`
+                      : `<a href="/d/${i.docId}">${escapeHtml(i.title)}</a>`
+                  } <span class="tag">${escapeHtml(i.type)}</span><div class="muted small">${escapeHtml(i.message.slice(0, 90))}</div></div>`,
               )
               .join('')
           : '<span class="muted small">Nothing needs you right now.</span>'
@@ -681,6 +693,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
               }
             </div>
             ${renderGithub()}
+            ${renderAgents()}
             ${data!.project.docId ? `<div class="panel"><h3>Project doc</h3><a class="btn sm" href="/d/${encodeURIComponent(data!.project.docId)}">Open · ${escapeHtml(data!.project.docTitle ?? 'project doc')}</a></div>` : ''}
           </div>
           <div class="ws-overview-right">${renderChat()}</div>
@@ -770,6 +783,23 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       <div class="ws-modal-field"><span>Personal access token (repo scope)</span><input id="gh-token" type="password" placeholder="ghp_…" /></div>
       <button class="btn sm" id="enable-github">Enable sync</button>
       <div class="muted small">Tasks push to GitHub issues; issues created from CanBang tasks import back.</div></div>`
+  }
+
+  const renderAgents = () => {
+    if (!data!.project.docId) {
+      return `<div class="panel"><h3>Agent onboarding</h3><span class="muted small">Link a project doc first to onboard agents.</span></div>`
+    }
+    return `<div class="panel"><h3>Agent onboarding</h3>
+      ${
+        agentPrompt
+          ? `<div class="ws-modal-field"><span>Prompt for your Codex instances</span>
+              <textarea readonly rows="12" id="agent-prompt">${escapeHtml(agentPrompt.text)}</textarea></div>
+             <div class="ws-modal-actions"><button class="btn sm primary" id="copy-agent-prompt">Copy prompt</button><span class="muted small">${escapeHtml(agentPrompt.link)}</span></div>`
+          : `<span class="muted small">Mint an edit link to the project doc and generate the onboarding prompt for your Codex instances.</span>
+             <button class="btn sm" id="gen-agent-prompt">Generate agent prompt + link</button>`
+      }
+      <div class="ws-modal-actions" style="margin-top:6px"><button class="btn sm" id="add-agent-briefing">Add AGENTS briefing to project doc</button></div>
+      <div class="muted small">Paste the same prompt into each Codex instance — they self-assign roles (one agent per role).</div></div>`
   }
 
   const renderMatrix = () => {
@@ -994,6 +1024,15 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     })
     document.getElementById('enable-github')?.addEventListener('click', () => void enableGithub())
     document.getElementById('sync-github')?.addEventListener('click', () => void runGithubSync())
+    document
+      .getElementById('gen-agent-prompt')
+      ?.addEventListener('click', () => void genAgentPrompt())
+    document
+      .getElementById('copy-agent-prompt')
+      ?.addEventListener('click', () => void copyAgentPrompt())
+    document
+      .getElementById('add-agent-briefing')
+      ?.addEventListener('click', () => void addAgentBriefing())
     document.getElementById('back-to-project')?.addEventListener('click', () => {
       detail = 'project'
       releaseId = null
@@ -1235,6 +1274,68 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       await loadProject()
       render()
     }
+  }
+
+  const agentBriefing = () => {
+    const name = data!.project.name
+    return `You are one of several Codex instances coordinating through this doc. Nobody will brief you beyond this section.
+
+1. Learn the site: the full agent API is at /agents.md.
+   - Read — GET <this-doc-url>.md (your ?key= works on it).
+   - Write — PUT /api/docs/<id>/content with If-Match set to the X-Doc-Version you read. On 409, re-read and retry.
+   - Chat — POST /api/docs/<id>/chat/message with {"text":"...","author":"<your-role>"}.
+   - Evidence — POST /api/docs/<id>/assets (raw bytes) returns markdown you can embed on a card.
+2. Claim a role from the roster below — one agent per role. Write your role into Claimed by with a versioned write; a 409 means another agent beat you.
+3. Work the board: claim a card by flipping [ ] to [>], moving it to Doing, and adding @<your-role>. Every card needs a done-means: line.
+4. Never grade your own work: move finished cards to Testing, not Done. The tester re-verifies with fresh eyes.
+5. Post progress to chat; set the status to awaiting-human only when you need the human.
+6. Don't stop: card done → pull the next one. You're finished when the human says so.
+
+## Roster (${name})
+Role | You own | Claimed by
+integrator | merging, deploying, keeping main green | 
+builder | feature work with evidence | 
+scout | fresh-eyes verification and findings | 
+tester | verifying Testing cards against done-means | 
+
+## Mission
+${data!.project.description ?? 'Ship the current phase, then the next.'}`
+  }
+
+  const buildAgentPrompt = (link: string) =>
+    `Read ${location.origin}/agents.md, then work this project doc: ${link}
+
+` + agentBriefing()
+
+  const genAgentPrompt = async () => {
+    if (!data?.project.docId) return
+    const s = await api.share(data.project.docId, 'edit')
+    agentPrompt = { link: s.share.url, text: buildAgentPrompt(s.share.url) }
+    render()
+  }
+
+  const copyAgentPrompt = async () => {
+    const ta = document.getElementById('agent-prompt') as HTMLTextAreaElement | null
+    if (!ta) return
+    try {
+      await navigator.clipboard.writeText(ta.value)
+    } catch {
+      ta.select()
+      document.execCommand('copy')
+    }
+  }
+
+  const addAgentBriefing = async () => {
+    if (!data?.project.docId) return
+    const doc = await api.readDoc(data.project.docId, '')
+    if (doc.content.includes('AGENTS: READ THIS FIRST')) {
+      alert('The AGENTS briefing is already in the project doc.')
+      return
+    }
+    const updated = `${doc.content.trimEnd()}\n\n## AGENTS: READ THIS FIRST\n\n${agentBriefing()}`
+    await api.writeDoc(data.project.docId, '', updated, doc.version, 'agent briefing')
+    await loadProject()
+    render()
   }
 
   const login = async () => {
