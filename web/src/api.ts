@@ -602,6 +602,8 @@ export class Api {
       docId: string | null
       docTitle: string | null
       priority: string | null
+      acceptance: string | null
+      context: string | null
     }
     phase: { id: string; name: string }
     project: { id: string; name: string }

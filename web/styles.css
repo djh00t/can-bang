@@ -1011,6 +1011,29 @@ textarea:focus {
   flex-wrap: wrap;
 }
 
+.ws-burndown-top {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ws-burndown-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ws-burndown-top-head h3 {
+  margin: 0;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .ws-board {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1245,6 +1268,61 @@ textarea:focus {
   margin-top: 8px;
   padding-top: 10px;
   border-top: 1px solid var(--border);
+}
+
+.ws-task-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ws-task-detail h2 {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.ws-task-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ws-task-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ws-task-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ws-task-body .ws-field {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.ws-task-body h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.ws-task-body .markdown-body {
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.ws-task-body .markdown-body ul {
+  margin: 6px 0;
+  padding-left: 18px;
 }
 
 .ws-stats {
