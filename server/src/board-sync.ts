@@ -43,9 +43,13 @@ function boardFence(content: string): Fence | undefined {
 }
 
 function cardBlock(cardLine: string, fields: Record<string, string>): string {
-  return `${cardLine}\n${Object.entries(fields)
-    .map(([k, v]) => `  ${k}: ${v}`)
-    .join('\n')}`
+  const out = [cardLine]
+  for (const [k, v] of Object.entries(fields)) {
+    const parts = String(v).split('\n')
+    out.push(`  ${k}: ${parts[0]!}`)
+    for (const part of parts.slice(1)) out.push(`  ${part}`)
+  }
+  return out.join('\n')
 }
 
 function insertBlockAfterHeader(
@@ -78,6 +82,8 @@ export interface CardPatch {
   feature?: string | null
   doneMeans?: string | null
   priority?: string | null
+  acceptance?: string | null
+  context?: string | null
 }
 
 /** Append a card for a new task into the project doc's board fence (the record). */
@@ -94,6 +100,8 @@ export function appendCard(
     doneMeans?: string | null
     release?: string | null
     priority?: string | null
+    acceptance?: string | null
+    context?: string | null
   },
 ): void {
   const doc = readDoc(db, docId)
@@ -109,6 +117,8 @@ export function appendCard(
   if (opts.release) fields.release = opts.release
   if (opts.doneMeans) fields['done-means'] = opts.doneMeans
   if (opts.priority) fields.priority = opts.priority
+  if (opts.acceptance) fields.acceptance = opts.acceptance
+  if (opts.context) fields.context = opts.context
   content = insertBlockAfterHeader(
     content,
     fence,
@@ -137,11 +147,18 @@ export function updateCard(db: Db, docId: string, taskId: string, patch: CardPat
   while (cardIdx > fence.start && !/^-\s+\[[ >xX]\]/.test(lines[cardIdx]!)) cardIdx--
   if (cardIdx <= fence.start || !/^-\s+\[[ >xX]\]/.test(lines[cardIdx]!)) return
   let end = taskIdx
-  while (end + 1 < lines.length && /^\s+[A-Za-z0-9 _-]+:/.test(lines[end + 1]!)) end++
+  while (end + 1 < lines.length && /^\s+/.test(lines[end + 1]!)) end++
   const fields: Record<string, string> = {}
+  let lastKey: string | null = null
   for (let i = cardIdx + 1; i <= end; i++) {
-    const m = /^\s+([A-Za-z0-9 _-]+?):\s*(.*)$/.exec(lines[i]!)
-    if (m) fields[m[1]!.trim()] = m[2]!.trim()
+    const m = /^\s+([A-Za-z0-9_-]+):\s*(.*)$/.exec(lines[i]!)
+    if (m) {
+      const key = m[1]!.trim()
+      fields[key] = m[2]!.trim()
+      lastKey = key
+    } else if (lastKey && fields[lastKey]) {
+      fields[lastKey] = `${fields[lastKey]}\n${lines[i]!.trim()}`
+    }
   }
   let col = 'Todo'
   for (let i = cardIdx - 1; i > fence.start; i--) {
@@ -165,6 +182,8 @@ export function updateCard(db: Db, docId: string, taskId: string, patch: CardPat
       : (fields.feature ?? /#([A-Za-z0-9_-]+)/.exec(lines[cardIdx]!)?.[1] ?? null)
   const doneMeans = patch.doneMeans !== undefined ? patch.doneMeans : (fields['done-means'] ?? null)
   const priority = patch.priority !== undefined ? patch.priority : (fields.priority ?? null)
+  const acceptance = patch.acceptance !== undefined ? patch.acceptance : (fields.acceptance ?? null)
+  const context = patch.context !== undefined ? patch.context : (fields.context ?? null)
   const phaseName = fields.phase ?? ''
   const release = fields.release
   const newCardLine = `- ${marker(newStatus)} ${title}${assignee ? ` @${assignee}` : ''}${feature ? ` #${feature}` : ''}`
@@ -172,6 +191,8 @@ export function updateCard(db: Db, docId: string, taskId: string, patch: CardPat
   if (release) newFields.release = release
   if (doneMeans) newFields['done-means'] = doneMeans
   if (priority) newFields.priority = priority
+  if (acceptance) newFields.acceptance = acceptance
+  if (context) newFields.context = context
   lines.splice(cardIdx, end - cardIdx + 1)
   let content = lines.join('\n')
   const newFence = boardFence(content)
@@ -220,6 +241,8 @@ export function reindexBoard(
         feature: string | null
         done_means: string | null
         priority: string | null
+        acceptance: string | null
+        context: string | null
       }[]
     ).map((t) => [t.id, t]),
   )
@@ -242,6 +265,8 @@ export function reindexBoard(
       const feature = card.fields.feature ?? card.tags[0] ?? null
       const doneMeans = card.fields['done-means']?.trim() || null
       const priority = card.fields.priority?.trim() || null
+      const acceptance = card.fields.acceptance?.trim() || null
+      const context = card.fields.context?.trim() || null
       if (taskId && existing.has(taskId)) {
         seen.add(taskId)
         const t = existing.get(taskId)!
@@ -282,15 +307,37 @@ export function reindexBoard(
           db.prepare('UPDATE tasks SET priority=? WHERE id=?').run(priority, taskId)
           changed = true
         }
+        if (acceptance !== (t.acceptance ?? null)) {
+          db.prepare('UPDATE tasks SET acceptance=? WHERE id=?').run(acceptance, taskId)
+          changed = true
+        }
+        if (context !== (t.context ?? null)) {
+          db.prepare('UPDATE tasks SET context=? WHERE id=?').run(context, taskId)
+          changed = true
+        }
         if (changed) updated++
       } else {
         const id = taskId ?? randomId(14)
         db.prepare(
-          `INSERT INTO tasks (id, phase_id, title, status, assignee, feature, done_means, priority, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?)
+          `INSERT INTO tasks (id, phase_id, title, status, assignee, feature, done_means, priority, acceptance, context, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(id) DO UPDATE SET title=excluded.title, status=excluded.status, assignee=excluded.assignee,
-             feature=excluded.feature, done_means=excluded.done_means, priority=excluded.priority, updated_at=excluded.updated_at`,
-        ).run(id, phaseId, title, status, assignee, feature, doneMeans, priority, now(), now())
+             feature=excluded.feature, done_means=excluded.done_means, priority=excluded.priority,
+             acceptance=excluded.acceptance, context=excluded.context, updated_at=excluded.updated_at`,
+        ).run(
+          id,
+          phaseId,
+          title,
+          status,
+          assignee,
+          feature,
+          doneMeans,
+          priority,
+          acceptance,
+          context,
+          now(),
+          now(),
+        )
         db.prepare('INSERT INTO task_events (task_id, phase_id, status, ts) VALUES (?,?,?,?)').run(
           id,
           phaseId,

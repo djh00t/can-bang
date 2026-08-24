@@ -57,6 +57,8 @@ export interface TaskRow {
   blockers: string | null
   doc_id: string | null
   priority: string | null
+  acceptance: string | null
+  context: string | null
   created_at: number
   updated_at: number
 }
@@ -347,6 +349,8 @@ state: building
           feature: t.feature,
           done_means: t.done_means,
           priority: t.priority,
+          acceptance: t.acceptance,
+          context: t.context,
           description: t.description,
           blockers: t.blockers,
           docId: t.doc_id,
@@ -574,6 +578,8 @@ state: building
           feature: t.feature,
           done_means: t.done_means,
           priority: t.priority,
+          acceptance: t.acceptance,
+          context: t.context,
           docId: t.doc_id,
         })),
       })
@@ -604,6 +610,9 @@ state: building
       const taskDocId = typeof req.body?.doc_id === 'string' ? req.body.doc_id.slice(0, 40) : null
       const priority =
         typeof req.body?.priority === 'string' ? req.body.priority.slice(0, 20) : null
+      const acceptance =
+        typeof req.body?.acceptance === 'string' ? req.body.acceptance.slice(0, 500) : null
+      const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 2000) : null
       const project = db
         .prepare('SELECT id, doc_id FROM projects WHERE id=?')
         .get(phase.project_id) as {
@@ -625,12 +634,14 @@ state: building
           doneMeans,
           release,
           priority,
+          acceptance,
+          context,
         })
       }
       // description/blockers/doc link live on the task row (task metadata, not the card)
       db.prepare(
-        `INSERT INTO tasks (id, phase_id, title, status, assignee, feature, done_means, priority, description, blockers, doc_id, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO tasks (id, phase_id, title, status, assignee, feature, done_means, priority, acceptance, context, description, blockers, doc_id, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       ).run(
         id,
         phase.id,
@@ -640,6 +651,8 @@ state: building
         feature,
         doneMeans,
         priority,
+        acceptance,
+        context,
         description,
         blockers,
         taskDocId,
@@ -714,12 +727,25 @@ state: building
           : typeof req.body?.priority === 'string'
             ? req.body.priority.trim().slice(0, 20)
             : undefined
+      const acceptance =
+        req.body?.acceptance === null
+          ? null
+          : typeof req.body?.acceptance === 'string'
+            ? req.body.acceptance.trim().slice(0, 500)
+            : undefined
+      const context =
+        req.body?.context === null
+          ? null
+          : typeof req.body?.context === 'string'
+            ? req.body.context.trim().slice(0, 2000)
+            : undefined
       if (status && status !== task.status)
         recordTaskEvent(db, task.id, task.phase_id, status, now())
       db.prepare(
         `UPDATE tasks SET status=COALESCE(?, status), title=COALESCE(?, title), assignee=COALESCE(?, assignee),
            feature=COALESCE(?, feature), done_means=COALESCE(?, done_means),
            priority=CASE WHEN ? = 1 THEN ? ELSE priority END,
+           acceptance=COALESCE(?, acceptance), context=COALESCE(?, context),
            description=COALESCE(?, description), blockers=COALESCE(?, blockers), doc_id=COALESCE(?, doc_id), updated_at=? WHERE id=?`,
       ).run(
         status ?? null,
@@ -729,6 +755,8 @@ state: building
         doneMeans ?? null,
         priority !== undefined ? 1 : 0,
         priority ?? null,
+        acceptance ?? null,
+        context ?? null,
         description ?? null,
         blockers ?? null,
         docId ?? null,
@@ -751,6 +779,8 @@ state: building
           ...(feature !== undefined ? { feature } : {}),
           ...(doneMeans !== undefined ? { doneMeans } : {}),
           ...(priority !== undefined ? { priority } : {}),
+          ...(acceptance !== undefined ? { acceptance } : {}),
+          ...(context !== undefined ? { context } : {}),
         })
       }
       reindexBoard(db, projectRow.project_id)
@@ -787,6 +817,8 @@ state: building
           docId: task.doc_id,
           docTitle: docTitle(db, task.doc_id),
           priority: task.priority,
+          acceptance: task.acceptance,
+          context: task.context,
         },
         phase: { id: phase.id, name: phase.name },
         project: { id: project.id, name: project.name },

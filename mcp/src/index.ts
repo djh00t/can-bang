@@ -49,6 +49,23 @@ function resolveDoc(value: string | undefined, explicitKey: string | undefined) 
   return { id, key }
 }
 
+function resolveEntity(value: string | undefined, patterns: RegExp[]) {
+  const input = String(value || '').trim()
+  if (!input) return { error: inputError('id required') }
+  let id = input
+  try {
+    const url = new URL(input)
+    const match = patterns.map((p) => url.pathname.match(p)).find(Boolean)
+    if (!match) return { error: inputError('URL must point to a known project/phase/task path') }
+    id = match[1]!
+  } catch {
+    if (/[/?#]/.test(input))
+      return { error: inputError('value must be an id or a CanBang project/phase/task URL') }
+  }
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) return { error: inputError('id contains an invalid character') }
+  return { id }
+}
+
 function inputError(message: string) {
   return { ok: false, status: 400, error: message }
 }
@@ -363,6 +380,105 @@ server.registerTool(
   'list_folders',
   { description: 'Recursive owner folder tree with counts (account-scoped).', inputSchema: {} },
   async () => resultFrom(await jsonRequest('/api/folders')),
+)
+
+const taskSpecFields = {
+  title: z.string().min(1).max(200).optional(),
+  status: z.enum(['todo', 'doing', 'testing', 'done']).optional(),
+  assignee: z.string().max(40).nullable().optional(),
+  feature: z.string().max(80).nullable().optional(),
+  priority: z.string().max(20).nullable().optional(),
+  doneMeans: z.string().max(500).nullable().optional(),
+  acceptance: z.string().max(500).nullable().optional(),
+  context: z.string().max(2000).nullable().optional(),
+  description: z.string().max(2000).nullable().optional(),
+  blockers: z.string().max(500).nullable().optional(),
+}
+
+function taskBody(args: Record<string, unknown>) {
+  const body: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(args)) {
+    if (v === undefined) continue
+    body[k === 'doneMeans' ? 'done_means' : k] = v
+  }
+  return body
+}
+
+server.registerTool(
+  'list_tasks',
+  {
+    description:
+      'List every task in a project (all phases) with the full spec: status, assignee, feature, priority, done-means, acceptance, context, description, blockers.',
+    inputSchema: { project: z.string().min(1) },
+  },
+  async ({ project }) => {
+    const resolved = resolveEntity(project, [/^\/p\/([^/]+)/])
+    if (resolved.error) return resultFrom(resolved.error)
+    const payload = (await jsonRequest(`/api/projects/${encodeURIComponent(resolved.id!)}`)) as {
+      tasks?: unknown[]
+    }
+    return resultFrom(Array.isArray(payload?.tasks) ? { tasks: payload.tasks } : payload)
+  },
+)
+
+server.registerTool(
+  'get_task',
+  {
+    description:
+      'Read one task with its full spec (acceptance criteria, context, done-means, description, blockers) plus phase and project.',
+    inputSchema: { task: z.string().min(1) },
+  },
+  async ({ task }) => {
+    const resolved = resolveEntity(task, [
+      /^\/api\/tasks\/([^/]+)/,
+      /^\/p\/[^/]+\/phase\/[^/]+\/task\/([^/]+)/,
+    ])
+    if (resolved.error) return resultFrom(resolved.error)
+    return resultFrom(await jsonRequest(`/api/tasks/${encodeURIComponent(resolved.id!)}`))
+  },
+)
+
+server.registerTool(
+  'create_task',
+  {
+    description:
+      'Create a task in a phase with the full spec contract (title required; acceptance/context/done-means/priority/feature/assignee/description/blockers optional).',
+    inputSchema: { phase: z.string().min(1), ...taskSpecFields },
+  },
+  async ({ phase, ...spec }) => {
+    const resolved = resolveEntity(phase, [/^\/p\/[^/]+\/phase\/([^/]+)/])
+    if (resolved.error) return resultFrom(resolved.error)
+    const body = taskBody(spec)
+    if (!body.title) return resultFrom(inputError('title required'))
+    return resultFrom(
+      await jsonRequest(`/api/phases/${encodeURIComponent(resolved.id!)}/tasks`, {
+        method: 'POST',
+        body,
+      }),
+    )
+  },
+)
+
+server.registerTool(
+  'update_task',
+  {
+    description:
+      'Patch any task spec field (status, title, assignee, feature, priority, done-means, acceptance, context, description, blockers). Pass null to clear a field.',
+    inputSchema: { task: z.string().min(1), ...taskSpecFields },
+  },
+  async ({ task, ...spec }) => {
+    const resolved = resolveEntity(task, [
+      /^\/api\/tasks\/([^/]+)/,
+      /^\/p\/[^/]+\/phase\/[^/]+\/task\/([^/]+)/,
+    ])
+    if (resolved.error) return resultFrom(resolved.error)
+    return resultFrom(
+      await jsonRequest(`/api/tasks/${encodeURIComponent(resolved.id!)}`, {
+        method: 'PATCH',
+        body: taskBody(spec),
+      }),
+    )
+  },
 )
 
 server.registerTool(

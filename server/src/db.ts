@@ -281,6 +281,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   github_issue_url TEXT,
   board_sync_ts INTEGER,
   priority TEXT,
+  acceptance TEXT,
+  context TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -389,6 +391,8 @@ export function openDb(path: string): Db {
   ensureColumn(db, 'tasks', 'github_issue_url', 'github_issue_url TEXT')
   ensureColumn(db, 'tasks', 'board_sync_ts', 'board_sync_ts INTEGER')
   ensureColumn(db, 'tasks', 'priority', 'priority TEXT')
+  ensureColumn(db, 'tasks', 'acceptance', 'acceptance TEXT')
+  ensureColumn(db, 'tasks', 'context', 'context TEXT')
   ensureColumn(db, 'releases', 'doc_id', 'doc_id TEXT REFERENCES docs(id)')
   return db
 }

@@ -50,6 +50,34 @@ describe('markdown model', () => {
     expect(card.fields.priority).toBe('high')
   })
 
+  it('joins indented continuation lines into multiline card fields', () => {
+    const fence = findFence(
+      `# Board
+
+\`\`\`board #tickets
+## Todo
+- [ ] Spec it
+  task: T1
+  phase: MVP
+  acceptance: Given the API key is set
+    the sync posts exactly one PR per card
+    and never self-merges
+  context: Claimed after the previous card context is closed
+  priority: high
+## Doing
+\`\`\`
+`,
+      'board',
+      'tickets',
+    )!
+    const card = parseBoard(fence.body).cards[0]!
+    expect(card.fields.acceptance).toBe(
+      'Given the API key is set\nthe sync posts exactly one PR per card\nand never self-merges',
+    )
+    expect(card.fields.context).toBe('Claimed after the previous card context is closed')
+    expect(card.fields.priority).toBe('high')
+  })
+
   it('parses chat lines and appends new ones', () => {
     const fence = findFence(DOC, 'chat', 'general')!
     const lines = parseChat(fence.body)

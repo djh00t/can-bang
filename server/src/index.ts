@@ -15,6 +15,7 @@ import {
   repairSeededSkills,
   seedSkillsIfFirst,
   seedWorkspaceIfFirst,
+  upgradeSeededSkillsV2,
 } from './seed.js'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -121,6 +122,7 @@ async function main(): Promise<void> {
     .prepare('SELECT id, username FROM accounts ORDER BY created_at ASC LIMIT 1')
     .get() as { id: string; username: string } | undefined
   if (firstAccount) seedSkillsIfFirst(services, firstAccount.id, firstAccount.username)
+  if (firstAccount) upgradeSeededSkillsV2(services, firstAccount.id, firstAccount.username)
   if (firstAccount) seedWorkspaceIfFirst(services, firstAccount.id)
   repairSeededSkills(db)
   dedupeSeededProjects(db)

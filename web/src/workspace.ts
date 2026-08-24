@@ -1,5 +1,5 @@
 import { Api } from './api.js'
-import { escapeHtml, findFences, parseChat } from './markdown.js'
+import { escapeHtml, findFences, parseChat, renderMarkdown } from './markdown.js'
 
 type Phase = {
   id: string
@@ -667,6 +667,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       return renderGlobalDashboard()
     }
     if (detail === 'release' && releaseDetail) return renderReleaseDetail()
+    if (taskId && taskDetail) return renderTaskDetail()
     return `
       <div class="ws-project-head">
         <div>
@@ -682,14 +683,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       </div>
       <div class="ws-project-body">
         ${view === 'overview' ? renderOverview() : view === 'pipeline' ? renderPipeline(phase, phaseTasks) : renderMatrix()}
-      </div>
-      ${
-        taskId
-          ? `<div class="ws-drawer" role="dialog" aria-label="Task detail">
-              ${renderTaskDrawer()}
-            </div>`
-          : ''
-      }`
+      </div>`
   }
 
   const renderPipeline = (phase: Phase | null, phaseTasks: ProjectData['tasks']) => {
@@ -709,6 +703,9 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
             ? `<div class="ws-filter-row"><span class="tag">Filtered · ${escapeHtml(phase.name)}</span><button class="btn sm" data-clear-phase>All phases</button></div>`
             : '<div class="ws-filter-row"><span class="tag">All phases</span></div>'
         }
+        <div class="panel ws-burndown-top">
+          ${renderBurndown(phase)}
+        </div>
         <div class="ws-pipeline">
         <div class="ws-board">
           ${columns
@@ -731,21 +728,6 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
             .join('')}
         </div>
         <div class="ws-right">
-          <div class="panel">
-            <h3>Releases / demos</h3>
-            ${data!.releases
-              .map(
-                (rl) =>
-                  `<button class="ws-release ${rl.phaseId === phaseId ? 'on' : ''}" data-release="${rl.id}">
-                     <span class="status-pill sp-${rl.demo_status}">${rl.demo_status}</span>
-                     <span>${escapeHtml(rl.name)}</span></button>`,
-              )
-              .join('')}
-          </div>
-          <div class="panel">
-            <h3>Burndown · ${phase ? escapeHtml(phase.name) : 'all phases'}</h3>
-            ${renderBurndown(phase)}
-          </div>
           ${renderChat()}
           <button class="btn sm block" id="add-task">+ Task in ${phase ? escapeHtml(phase.name) : 'phase'}</button>
         </div>
@@ -948,11 +930,12 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   const renderBurndown = (phase: Phase | null) => {
     const b = phase ? burndownCache.get(phase.id) : undefined
     const counts = phase ? phase.counts : { done: data!.counts.done, total: data!.counts.total }
-    if (!b || !b.points.length) {
-      const pct = counts.total ? Math.round((counts.done / counts.total) * 100) : 0
-      return `<div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
-        <div class="muted small">${counts.done}/${counts.total} tasks done (${pct}%)${phase ? '' : ' · all phases'}</div>`
-    }
+    const pct = counts.total ? Math.round((counts.done / counts.total) * 100) : 0
+    const heading = `<div class="ws-burndown-top-head"><h3>Burndown${phase ? ` · ${escapeHtml(phase.name)}` : ' · all phases'}</h3></div>`
+    const bar = `<div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>`
+    const summary = `<div class="muted small">${counts.done}/${counts.total} tasks done (${pct}%)${phase ? '' : ' · all phases'}</div>`
+    if (!b || !b.points || b.points.length < 2)
+      return `<div class="ws-burndown-top-row">${heading}${summary}</div>${bar}`
     const pts = b.points
     const max = Math.max(1, ...pts.map((p) => p.remaining))
     const w = 280
@@ -964,51 +947,78 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       )
       .join(' ')
     return `
+      <div class="ws-burndown-top-row">${heading}${summary}</div>
+      ${bar}
       <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" role="img" aria-label="Burndown: remaining tasks over time">
         <polyline points="${coords}" fill="none" stroke="#12b76a" stroke-width="2" />
       </svg>
       <div class="muted small">${b.current} remaining of ${b.total} · ${pts[0]?.date} → ${pts[pts.length - 1]?.date}</div>`
   }
 
-  const renderTaskDrawer = () => {
+  const renderTaskDetail = () => {
     const t = taskDetail
     if (!t) return '<span class="muted">loading…</span>'
+    const release = data?.releases.find((r) => r.phaseId === t.phase.id) ?? null
+    const specSections: [string, string | null][] = [
+      ['Acceptance criteria', t.task.acceptance],
+      ['Context', t.task.context],
+      ['Done means', t.task.done_means],
+      ['Description', t.task.description],
+      ['Blockers', t.task.blockers],
+    ]
     return `
-      <div class="ws-drawer-head">
-        <b>${escapeHtml(t.task.title)}</b>
-        <button class="btn sm" data-close-task aria-label="Close task detail">×</button>
-      </div>
-      <div class="ws-drawer-body">
-        <div class="row"><span>Status</span>
-          <span class="ws-status-btns">
-            ${['todo', 'doing', 'testing', 'done']
-              .map(
-                (s) =>
-                  `<button class="btn sm ${t.task.status === s ? 'primary' : ''}" data-set-status="${s}">${s}</button>`,
-              )
-              .join('')}
-          </span>
+      <div class="ws-task-detail panel">
+        <button class="btn sm" data-close-task>← Back</button>
+        <h2>${escapeHtml(t.task.title)}</h2>
+        <div class="ws-task-meta">
+          <span class="chip">${escapeHtml(t.task.status)}</span>
+          ${t.task.priority ? `<span class="chip priority-${escapeHtml(t.task.priority)}">${escapeHtml(t.task.priority)}</span>` : ''}
+          ${t.task.assignee ? `<span class="chip assignee">@${escapeHtml(t.task.assignee)}</span>` : ''}
+          ${t.task.feature ? `<span class="chip tag">${escapeHtml(t.task.feature)}</span>` : ''}
+          <span class="muted small">${escapeHtml(t.project.name)} · ${escapeHtml(t.phase.name)}${release ? ` · 🚀 ${escapeHtml(release.name)}` : ''}</span>
         </div>
-        <div class="row"><span>Phase</span><b>${escapeHtml(t.phase.name)}</b></div>
-        <div class="row"><span>Project</span><b>${escapeHtml(t.project.name)}</b></div>
-        ${t.task.assignee ? `<div class="row"><span>Assignee</span><b>@${escapeHtml(t.task.assignee)}</b></div>` : ''}
-        ${t.task.feature ? `<div class="row"><span>Feature</span><b>${escapeHtml(t.task.feature)}</b></div>` : ''}
-        ${t.task.priority ? `<div class="row"><span>Priority</span><b>${escapeHtml(t.task.priority)}</b></div>` : ''}
-        ${t.task.done_means ? `<div class="ws-field"><span class="muted small">done-means</span><div>${escapeHtml(t.task.done_means)}</div></div>` : ''}
-        ${t.task.description ? `<div class="ws-field"><span class="muted small">description</span><div>${escapeHtml(t.task.description)}</div></div>` : ''}
-        ${t.task.blockers ? `<div class="ws-field"><span class="muted small">blockers</span><div>${escapeHtml(t.task.blockers)}</div></div>` : ''}
+        <div class="ws-task-actions">
+          <span class="muted small">Status</span>
+          ${['todo', 'doing', 'testing', 'done']
+            .map(
+              (s) =>
+                `<button class="btn sm ${t.task.status === s ? 'primary' : ''}" data-set-status="${s}">${s}</button>`,
+            )
+            .join('')}
+        </div>
+        <div class="ws-task-body">
+          ${
+            specSections
+              .filter(([, v]) => v)
+              .map(
+                ([label, v]) => `
+                <section class="ws-field">
+                  <h4>${label}</h4>
+                  <div class="markdown-body">${renderMarkdown(v!)}</div>
+                </section>`,
+              )
+              .join('') ||
+            '<p class="muted">No spec written yet. Add acceptance criteria so agents know what “done” means.</p>'
+          }
+          <section class="ws-field">
+            <h4>Linked doc</h4>
+            ${t.task.docId ? `<a class="btn sm" href="/d/${encodeURIComponent(t.task.docId)}">Open doc · ${escapeHtml(t.task.docTitle ?? 'linked')}</a>` : '<span class="muted">None linked</span>'}
+          </section>
+        </div>
         <div class="ws-drawer-actions">
-          ${t.task.docId ? `<a class="btn sm" href="/d/${encodeURIComponent(t.task.docId)}">Open doc · ${escapeHtml(t.task.docTitle ?? 'linked')}</a>` : ''}
           <button class="btn sm" data-link-task-doc>${t.task.docId ? 'Change doc' : 'Link doc'}</button>
           <button class="btn sm" data-edit-task="title">Rename</button>
           <button class="btn sm" data-edit-task="assignee">Assignee</button>
           <button class="btn sm" data-edit-task="feature">Feature</button>
           <button class="btn sm" data-edit-task="priority">Priority</button>
-          <button class="btn sm" data-edit-task="done_means">done-means</button>
+          <button class="btn sm" data-edit-task="done_means">Done means</button>
+          <button class="btn sm" data-edit-task="acceptance">Acceptance</button>
+          <button class="btn sm" data-edit-task="context">Context</button>
           <button class="btn sm" data-edit-task="description">Description</button>
           <button class="btn sm" data-edit-task="blockers">Blockers</button>
         </div>
-      </div>`
+      </div>
+    `
   }
 
   const renderReleaseDetail = () => {

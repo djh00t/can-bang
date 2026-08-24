@@ -33,7 +33,12 @@ The emulated product contract lives at `/agents.md` on a running instance and
 in `server/src/routes/` (docs, collab, asks, org, pages, extras). The web UI
 is `web/src/`; the MCP server is `mcp/src/`; the mde-compatible CLI is
 `cli/src/`. Changes to HTTP behavior must keep REST/MCP/CLI parity and update
-the contract tests.
+the contract tests. The task spec contract (title, status, assignee, feature,
+priority, done_means, acceptance, context, description, blockers) is exposed by
+REST `/api/phases/:id/tasks` and `/api/tasks/:id`, MCP `create_task` /
+`update_task` / `get_task` / `list_tasks`, and CLI `mde task new|edit`; the
+project doc board fence mirrors acceptance/context as indented continuation
+lines so multiline values survive reindexing.
 
 ## Constraints
 
