@@ -112,6 +112,18 @@ export function workspacePathFor(route: WorkspaceRoute): string {
   return `/p/${route.projectId}`
 }
 
+export function workspaceAncestorKeys(
+  route: WorkspaceRoute,
+  releasePhaseId: string | null = null,
+): string[] {
+  const keys: string[] = []
+  if (route.projectId) keys.push(`project:${route.projectId}`)
+  const phaseId = route.detail === 'release' ? releasePhaseId : route.phaseId
+  if (phaseId) keys.push(`phase:${phaseId}`)
+  if (route.taskId && route.phaseId) keys.push(`tasks:${route.phaseId}`)
+  return keys
+}
+
 const STATUS_LABEL: Record<string, string> = {
   shipped: 'shipped',
   'in-progress': 'in progress',
@@ -312,9 +324,10 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   const urlFor = () => workspacePathFor({ projectId, phaseId, view, releaseId, taskId, detail })
 
   const syncExpanded = () => {
-    if (projectId) expanded.add(`project:${projectId}`)
-    if (phaseId) expanded.add(`phase:${phaseId}`)
-    if (taskId && phaseId) expanded.add(`tasks:${phaseId}`)
+    const route: WorkspaceRoute = { projectId, phaseId, view, releaseId, taskId, detail }
+    for (const key of workspaceAncestorKeys(route, releaseDetail?.phase.id ?? null)) {
+      expanded.add(key)
+    }
   }
 
   const syncUrl = (push = true) => {

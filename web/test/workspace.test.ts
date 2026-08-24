@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { parseWorkspaceRoute, renderAgentPromptModal, workspacePathFor } from '../src/workspace.js'
+import {
+  parseWorkspaceRoute,
+  renderAgentPromptModal,
+  workspaceAncestorKeys,
+  workspacePathFor,
+} from '../src/workspace.js'
 
 test('renders the onboarding modal with escaped prompt and agent link', () => {
   const html = renderAgentPromptModal(
@@ -44,4 +49,13 @@ test('restores hierarchy ancestors from a task URL', () => {
     taskId: 'task-1',
     detail: 'project',
   })
+})
+
+test('uses the release detail phase instead of stale route state', () => {
+  const route = parseWorkspaceRoute('/p/project-1/release/release-1')
+
+  assert.deepEqual(workspaceAncestorKeys(route, 'phase-actual'), [
+    'project:project-1',
+    'phase:phase-actual',
+  ])
 })
