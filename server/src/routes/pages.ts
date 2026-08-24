@@ -496,11 +496,15 @@ Collaboration
   mde reject <doc> <id...>
   mde history <doc> [--json]
   mde events <doc> [--since N] [--json]
-  mde watch <doc> [--since N] [--json] [--exec cmd] [--skip-self] [--cursor]
+  mde watch <doc> [--since N] [--json] [--exec cmd] [--skip-self] [--cursor] [--daemon|--daemon-off]
 
 Agent presence
   mde register <name> [--role chief] [--harness x]
   mde heartbeat <name>
+  mde activity <doc> [--json]
+
+Chief supervision
+  mde chief-supervisor [--chief name] [--interval sec]
 
 Feedback
   mde papercut <doc> <summary> [--category api|cli|docs|handoff|other]
