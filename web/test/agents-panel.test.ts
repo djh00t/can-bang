@@ -27,6 +27,18 @@ test('derives online, offline, working, and blocked agent presence', () => {
     ]),
     'blocked',
   )
+  assert.equal(
+    agentPresenceStatus(agent('blocked-description', 'live', 'Needs review'), [
+      { id: 'task-3', title: 'Ship UI', description: 'Needs review', blockers: 'Needs review' },
+    ]),
+    'blocked',
+  )
+  assert.equal(
+    agentPresenceStatus(agent('arbitrary-text', 'live', 'audit'), [
+      { id: 'task-4', title: 'Ship UI', description: null, blockers: 'Needs review' },
+    ]),
+    'working',
+  )
 })
 
 test('renders the AGENTS presence list with escaped names and task labels', () => {

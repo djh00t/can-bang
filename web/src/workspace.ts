@@ -201,19 +201,32 @@ function openInfoModal(title: string, html: string): void {
 
 export function agentPresenceStatus(
   agent: WorkspaceAgent,
-  tasks: { id: string; blockers: string | null }[],
+  tasks: { id: string; title?: string; description?: string | null; blockers: string | null }[],
 ): 'online' | 'offline' | 'working' | 'blocked' {
   if (agent.freshness === 'stale') return 'offline'
   if (agent.currentTask) {
-    const task = tasks.find((candidate) => candidate.id === agent.currentTask)
+    const task = findAgentTask(agent.currentTask, tasks)
     return task?.blockers ? 'blocked' : 'working'
   }
   return agent.freshness === 'live' ? 'online' : 'offline'
 }
 
+function findAgentTask(
+  currentTask: string,
+  tasks: { id: string; title?: string; description?: string | null; blockers: string | null }[],
+) {
+  const normalized = currentTask.trim().toLowerCase()
+  return tasks.find(
+    (candidate) =>
+      candidate.id === currentTask ||
+      candidate.title?.trim().toLowerCase() === normalized ||
+      candidate.description?.trim().toLowerCase() === normalized,
+  )
+}
+
 export function renderAgentPresence(
   agents: WorkspaceAgent[],
-  tasks: { id: string; title?: string; blockers: string | null }[],
+  tasks: { id: string; title?: string; description?: string | null; blockers: string | null }[],
 ): string {
   if (!agents.length) return '<span class="muted small">No registered agents yet.</span>'
   return `<div class="ws-agent-list">${agents
@@ -227,7 +240,7 @@ export function renderAgentPresence(
             : status === 'blocked'
               ? 'sp-blocked'
               : 'sp-none'
-      const task = tasks.find((candidate) => candidate.id === agent.currentTask)
+      const task = agent.currentTask ? findAgentTask(agent.currentTask, tasks) : undefined
       return `<div class="ws-agent-row">
         <div class="ws-agent-ident"><b>@${escapeHtml(agent.name)}</b>${agent.role === 'chief' ? '<span class="muted small">chief</span>' : ''}${task || agent.currentTask ? `<span class="muted small">${escapeHtml(task?.title ?? agent.currentTask ?? '')}</span>` : ''}</div>
         <span class="status-pill ${statusClass}">${status}</span>
@@ -389,6 +402,13 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     }
     await loadAgents()
     await loadChat()
+  }
+
+  const refreshAgents = async () => {
+    const refreshingProject = projectId
+    if (!refreshingProject || !data) return
+    await loadAgents()
+    if (projectId === refreshingProject) render()
   }
 
   const goHome = () => {
@@ -1509,6 +1529,7 @@ ${data!.project.description ?? 'Ship the current phase, then the next.'}`
     await loadProject()
   }
   render()
+  window.setInterval(() => void refreshAgents(), 30_000)
 
   window.addEventListener('popstate', async () => {
     const r = parseRoute()
