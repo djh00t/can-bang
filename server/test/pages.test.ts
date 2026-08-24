@@ -50,6 +50,14 @@ describe('pages, handoff, and 0.3 extras', () => {
     expect(pub.status).toBe(200)
   })
 
+  it('serves matrix release routes for direct navigation and refresh', async () => {
+    for (const path of ['/p/project-1', '/p/project-1/matrix', '/p/project-1/release/release-1']) {
+      const page = await request(ctx.app).get(path)
+      expect(page.status).toBe(200)
+      expect(page.headers['content-type']).toContain('text/html')
+    }
+  })
+
   it('lists templates and seeds docs via /new?template=', async () => {
     const list = await request(ctx.app).get('/api/templates')
     expect(list.body.templates.some((t: { slug: string }) => t.slug === 'agent-team-hq')).toBe(true)

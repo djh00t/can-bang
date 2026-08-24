@@ -111,6 +111,12 @@ export function pagesRoutes(services: AppServices): express.Router {
     }),
   )
 
+  // /p/... — workspace hierarchy routes are rendered by the web SPA.
+  // Keep this fallback server-side so matrix release links survive refresh.
+  r.get(/^\/p(?:\/.*)?$/, (_req: Request, res: Response) => {
+    sendSpa(res, services)
+  })
+
   // /d/:id?format=agent.json and /d/:id/agent.json
   r.get(
     '/d/:id/agent.json',
