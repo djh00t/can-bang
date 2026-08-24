@@ -230,6 +230,13 @@ export function shouldReloadProjectMatrix(
   return state.view === 'matrix' && state.projectId !== ownerProjectId
 }
 
+export function shouldLoadPhaseBurndown(
+  phaseId: string | null,
+  cache: ReadonlyMap<string, unknown>,
+): boolean {
+  return phaseId !== null && !cache.has(phaseId)
+}
+
 function openInfoModal(title: string, html: string): void {
   const overlay = document.createElement('div')
   overlay.className = 'ws-modal-overlay'
@@ -411,13 +418,16 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     }
   }
 
+  const loadPhaseBurndown = async (id: string | null) => {
+    if (!id || !shouldLoadPhaseBurndown(id, burndownCache)) return
+    burndownCache.set(id, await api.phaseBurndown(id))
+  }
+
   const loadProject = async () => {
     if (!projectId) return
     data = await loadProjectData(projectId)
     if (view === 'matrix') matrixData = await api.matrix(projectId)
-    if (phaseId && !burndownCache.has(phaseId)) {
-      burndownCache.set(phaseId, await api.phaseBurndown(phaseId))
-    }
+    await loadPhaseBurndown(phaseId)
     await loadChat()
   }
 
@@ -539,6 +549,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       releaseId = next.releaseId
       taskId = next.taskId
       taskDetail = null
+      await loadPhaseBurndown(phaseId)
       expanded.add(`project:${projectId}`)
       expanded.add(`phase:${phaseId}`)
     }
@@ -1249,6 +1260,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
               taskId = next.taskId
               taskDetail = null
               releaseDetail = null
+              await loadPhaseBurndown(phaseId)
               expanded.add(`project:${projectId}`)
               expanded.add(`phase:${phaseId}`)
             }

@@ -5,6 +5,7 @@ import {
   navigateToTreeTask,
   renderAgentPromptModal,
   renderProjectTreeLabel,
+  shouldLoadPhaseBurndown,
   shouldReloadProjectMatrix,
 } from '../src/workspace.js'
 
@@ -77,6 +78,12 @@ test('cross-project release navigation reloads matrix data only when needed', ()
     shouldReloadProjectMatrix({ projectId: 'old-project', view: 'pipeline' }, 'new-project'),
     false,
   )
+})
+
+test('cross-project phase navigation loads an uncached burndown', () => {
+  assert.equal(shouldLoadPhaseBurndown('new-phase', new Map()), true)
+  assert.equal(shouldLoadPhaseBurndown('cached-phase', new Map([['cached-phase', {}]])), false)
+  assert.equal(shouldLoadPhaseBurndown(null, new Map()), false)
 })
 
 test('tree release navigation clears stale task state and uses the release phase', () => {
