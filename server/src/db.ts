@@ -310,6 +310,14 @@ CREATE TABLE IF NOT EXISTS project_keys (
   label TEXT,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS inbox_dismissals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  doc_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  ref TEXT NOT NULL,
+  dismissed_at INTEGER NOT NULL,
+  UNIQUE (doc_id, kind, ref)
+);
 CREATE TABLE IF NOT EXISTS skill_releases (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   folder_id TEXT NOT NULL REFERENCES folders(id),

@@ -162,4 +162,41 @@ describe('github issues sync', () => {
     expect(pr.message).toContain('CanBang branding')
     expect(pr.url).toContain('pull/22')
   })
+
+  it('keeps dismissed PRs out of the inbox across syncs', async () => {
+    const { agent } = await account(ctx.app, 'pr-dismiss')
+    const pid = (await agent.post('/api/projects').send({ name: 'PRDismiss' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P' })).body.phase
+      .id as string
+    await agent.post(`/api/phases/${phaseId}/tasks`).send({ title: 'Something' })
+    await agent
+      .patch(`/api/projects/${pid}/github`)
+      .send({ enabled: true, repo: 'djh00t/can-bang', token: 'ghp_test' })
+    const gh = fakeGh({
+      get: async (path) =>
+        path.includes('/pulls')
+          ? {
+              status: 200,
+              json: [
+                {
+                  number: 22,
+                  title: 'feat: branding',
+                  state: 'open',
+                  html_url: 'https://github.com/djh00t/can-bang/pull/22',
+                },
+              ],
+            }
+          : { status: 200, json: [] },
+    })
+    await syncProjectGithub(ctx.db, pid, gh)
+    const before = await agent.get('/api/inbox')
+    expect(before.body.items.some((i: { type: string }) => i.type === 'pr')).toBe(true)
+    await agent.post('/api/inbox/dismiss').send({ docId: pid, type: 'pr', ref: '22' })
+    const afterDismiss = await agent.get('/api/inbox')
+    expect(afterDismiss.body.items.some((i: { type: string }) => i.type === 'pr')).toBe(false)
+    await syncProjectGithub(ctx.db, pid, gh)
+    const afterResync = await agent.get('/api/inbox')
+    expect(afterResync.body.items.some((i: { type: string }) => i.type === 'pr')).toBe(false)
+  })
 })

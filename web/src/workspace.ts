@@ -215,6 +215,10 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     message: string
     ts: number
     url?: string
+    ref?: string
+    projectId?: string
+    taskId?: string
+    phaseId?: string
   }[] = []
   let taskId: string | null = null
   let taskDetail: Awaited<ReturnType<Api['taskDetail']>> | null = null
@@ -535,23 +539,105 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
 
   const renderInbox = () => `
     <div class="ws-inbox panel">
-      <h3>Needs human attention</h3>
+      <h3>Needs human attention${inbox.length ? ` <span class="col-count">${inbox.length}</span>` : ''}</h3>
       ${
         inbox.length
           ? inbox
-              .slice(0, 6)
+              .slice(0, 20)
               .map(
-                (i) =>
-                  `<div class="ws-inbox-item">${
-                    i.url
-                      ? `<a href="${escapeHtml(i.url)}" target="_blank" rel="noopener">${escapeHtml(i.title)}</a>`
-                      : `<a href="/d/${i.docId}">${escapeHtml(i.title)}</a>`
-                  } <span class="tag">${escapeHtml(i.type)}</span><div class="muted small">${escapeHtml(i.message.slice(0, 90))}</div></div>`,
+                (i, idx) =>
+                  `<button class="ws-inbox-item" data-inbox-item="${idx}" title="open actions">
+                     <span class="ws-inbox-title">${escapeHtml(i.title)}${i.url ? ' ↗' : ''}</span>
+                     <span class="tag">${escapeHtml(i.type)}</span>
+                     <div class="muted small">${escapeHtml(i.message.slice(0, 90))}</div>
+                   </button>`,
               )
               .join('')
           : '<span class="muted small">Nothing needs you right now.</span>'
       }
     </div>`
+
+  const wireInboxItems = () => {
+    root.querySelectorAll<HTMLButtonElement>('[data-inbox-item]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const item = inbox[Number(b.dataset.inboxItem)]
+        if (item) openAttentionModal(item)
+      })
+    })
+  }
+
+  const openAttentionModal = (item: {
+    docId: string
+    title: string
+    type: string
+    message: string
+    url?: string
+    ref?: string
+    projectId?: string
+    taskId?: string
+    phaseId?: string
+  }) => {
+    const openHref =
+      item.type === 'pr'
+        ? null
+        : item.projectId && item.taskId && item.phaseId
+          ? `/p/${item.projectId}/phase/${item.phaseId}/task/${item.taskId}`
+          : item.projectId
+            ? `/p/${item.projectId}`
+            : `/d/${item.docId}`
+    const openLabel = item.projectId && item.taskId ? 'Open task' : 'Open doc'
+    const overlay = document.createElement('div')
+    overlay.className = 'ws-modal-overlay'
+    overlay.innerHTML = `
+      <div class="ws-modal" role="dialog" aria-modal="true" aria-label="Attention">
+        <div class="ws-modal-head"><b>${escapeHtml(item.title)}</b><button type="button" class="btn sm" data-close>×</button></div>
+        <div class="ws-modal-body">
+          <div class="muted small"><span class="tag">${escapeHtml(item.type)}</span> · ${escapeHtml(item.message)}</div>
+          <div class="ws-modal-actions">
+            ${item.url ? `<button type="button" class="btn primary" id="att-open">Open ↗</button>` : ''}
+            ${item.type !== 'pr' && openHref ? `<a class="btn" href="${escapeHtml(openHref)}">${openLabel}</a>` : ''}
+            <button type="button" class="btn" id="att-dismiss">Dismiss</button>
+            <button type="button" class="btn" data-close>Close</button>
+          </div>
+        </div>
+      </div>`
+    document.body.appendChild(overlay)
+    const close = () => overlay.remove()
+    overlay.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', close))
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close()
+    })
+    const openBtn = overlay.querySelector('#att-open')
+    if (openBtn && item.url) {
+      openBtn.addEventListener('click', () => {
+        window.open(item.url, '_blank', 'noopener')
+        close()
+      })
+    }
+    const dismissBtn = overlay.querySelector('#att-dismiss')
+    if (dismissBtn) {
+      dismissBtn.addEventListener('click', () => {
+        void api.dismissInbox({ docId: item.docId, type: item.type, ref: item.ref }).then(() => {
+          close()
+          return refreshInbox()
+        })
+      })
+    }
+  }
+
+  const refreshInbox = async () => {
+    if (!me) return
+    try {
+      inbox = (await api.inbox()).items
+    } catch {
+      return
+    }
+    const el = root.querySelector('.ws-inbox')
+    if (el) {
+      el.outerHTML = renderInbox()
+      wireInboxItems()
+    }
+  }
 
   const renderMain = (phase: Phase | null, phaseTasks: ProjectData['tasks']) => {
     if (!me) {
@@ -1072,6 +1158,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     document.querySelectorAll<HTMLButtonElement>('[data-demo-status]').forEach((b) => {
       b.addEventListener('click', () => void setDemoStatus(b.dataset.demoStatus!))
     })
+    wireInboxItems()
     document
       .getElementById('run-release-review')
       ?.addEventListener('click', () => void runReleaseReview())
@@ -1318,6 +1405,11 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
 4. Never grade your own work: move finished cards to Testing, not Done. The tester re-verifies with fresh eyes.
 5. Post progress to chat; set the status to awaiting-human only when you need the human.
 6. Don't stop: card done → pull the next one. You're finished when the human says so.
+7. Build in your own git worktree — git worktree add ../can-bang-<role> -b <role>/<card>; never commit on main. Once your PR is pushed, remove the worktree (git worktree remove ../can-bang-<role>) — never leave worktrees behind. Use Conventional Commits (feat:/fix:/refactor:/docs:/chore:/test:), one logical change per commit, never commit secrets, and never claim evidence you did not run.
+8. Open one PR per card against main when it is complete: title = the commit subject, body = what/why/evidence + card reference, ready for review (not draft). Never approve or merge your own PR — that is the human's call. Move the card to Testing and add the PR link as evidence.
+9. Fetch the helper skills over HTTP and follow them: GET /skills/commit-helper/manifest?v=1 and /skills/pr-helper/manifest?v=1 — verify each sha256, read every file, and do not install them into your config.
+10. Loop, and ask only when you must: never pause after one card — pull the next. Do not ask for permission for in-scope work. When a human decision is genuinely required, create an ASK (POST /api/docs/<id>/asks with the decision) or set status awaiting-human with a plain note, then continue on other cards; the human acts on the Needs Human Attention queue.
+11. Start each task with a cleared context: when you claim a card, close the previous task's context, create a fresh worktree for the card, and re-read the card, its done-means, and the current repo state from scratch. Do not carry assumptions or partial work from earlier tasks.
 
 ## Roster (${name})
 Role | You own | Claimed by
@@ -1427,6 +1519,7 @@ ${data!.project.description ?? 'Ship the current phase, then the next.'}`
   detail = route.detail
 
   await load()
+  setInterval(() => void refreshInbox(), 60_000)
   if (projectId) {
     await loadProject()
     if (detail === 'release' && releaseId) releaseDetail = await api.releaseDetail(releaseId)

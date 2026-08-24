@@ -194,8 +194,9 @@ export function reindexBoard(
   db: Db,
   projectId: string,
 ): { indexed: number; created: number; updated: number; removed: number } {
-  const project = db.prepare('SELECT id, doc_id FROM projects WHERE id=?').get(projectId) as
-    { id: string; doc_id: string | null } | undefined
+  const project = db
+    .prepare('SELECT id, owner_id, doc_id FROM projects WHERE id=?')
+    .get(projectId) as { id: string; owner_id: string; doc_id: string | null } | undefined
   if (!project?.doc_id) return { indexed: 0, created: 0, updated: 0, removed: 0 }
   const doc = readDoc(db, project.doc_id)
   if (!doc) return { indexed: 0, created: 0, updated: 0, removed: 0 }
@@ -258,6 +259,15 @@ export function reindexBoard(
         }
         if (assignee !== (t.assignee ?? null)) {
           db.prepare('UPDATE tasks SET assignee=? WHERE id=?').run(assignee, taskId)
+          if (assignee) {
+            db.prepare(
+              'UPDATE agents SET current_task=?, current_doc=? WHERE account_id=? AND name=?',
+            ).run(title.slice(0, 500), project.doc_id, project.owner_id, assignee)
+          } else if (t.assignee) {
+            db.prepare(
+              'UPDATE agents SET current_task=NULL, current_doc=NULL WHERE account_id=? AND name=?',
+            ).run(project.owner_id, t.assignee)
+          }
           changed = true
         }
         if (feature !== (t.feature ?? null)) {
@@ -287,6 +297,11 @@ export function reindexBoard(
           status,
           now(),
         )
+        if (assignee) {
+          db.prepare(
+            'UPDATE agents SET current_task=?, current_doc=? WHERE account_id=? AND name=?',
+          ).run(title.slice(0, 500), project.doc_id, project.owner_id, assignee)
+        }
         seen.add(id)
         created++
         if (!taskId) {

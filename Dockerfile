@@ -9,6 +9,7 @@ COPY core core
 COPY server server
 COPY web web
 COPY mcp mcp
+COPY skills skills
 RUN pnpm install --frozen-lockfile
 RUN pnpm build
 
@@ -22,6 +23,7 @@ COPY --from=builder /app/core ./core
 COPY --from=builder /app/server ./server
 COPY --from=builder /app/web ./web
 COPY --from=builder /app/mcp ./mcp
+COPY --from=builder /app/skills ./skills
 COPY --from=builder /app/package.json ./package.json
 
 ENV NODE_ENV=production
