@@ -562,7 +562,6 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
         </div>
         <button class="btn sm" id="link-project-doc">Link docs</button>
       </div>
-      ${renderRail(phase)}
       <div class="ws-project-body">
         ${view === 'overview' ? renderOverview() : view === 'pipeline' ? renderPipeline(phase, phaseTasks) : renderMatrix()}
       </div>
@@ -575,39 +574,6 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       }`
   }
 
-  const renderRail = (phase: Phase | null) => {
-    const currentIdx =
-      detail === 'release' ? 4 : taskId ? 5 : view === 'overview' || view === 'matrix' ? 2 : 3
-    const release = phaseId ? (data?.releases.find((rl) => rl.phaseId === phaseId) ?? null) : null
-    const stages: { label: string; action?: string }[] = [
-      { label: 'Global', action: 'home' },
-      { label: 'Account', action: 'home' },
-      { label: data ? escapeHtml(data.project.name) : 'Project', action: 'project' },
-      {
-        label: phase ? `Phase · ${escapeHtml(phase.name)}` : 'Phase · All',
-        action: phaseId ? 'phase' : 'project',
-      },
-      {
-        label: release
-          ? `Release · ${escapeHtml(release.name)}`
-          : releaseId
-            ? 'Release'
-            : 'Release',
-        action: releaseId ? 'release' : phaseId ? 'phase' : undefined,
-      },
-      { label: 'Task', action: taskId ? 'task' : undefined },
-    ]
-    return `
-      <div class="ws-rail">
-        ${stages
-          .map(
-            (s, i) =>
-              `${s.action ? `<button type="button" class="ws-stage clickable ${i === currentIdx ? 'cur' : i < currentIdx ? 'done' : ''}" data-breadcrumb="${s.action}">${s.label}</button>` : `<span class="ws-stage ${i === currentIdx ? 'cur' : ''}">${s.label}</span>`}${i < stages.length - 1 ? '<span class="ws-sep"></span>' : ''}`,
-          )
-          .join('')}
-      </div>`
-  }
-
   const renderPipeline = (phase: Phase | null, phaseTasks: ProjectData['tasks']) => {
     const columns = [
       ['todo', 'Todo'],
@@ -615,6 +581,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       ['testing', 'Testing'],
       ['done', 'Done'],
     ] as const
+    const releaseByPhase = new Map(data!.releases.map((r) => [r.phaseId, r.name]))
     const pct =
       phase && phase.counts.total ? Math.round((phase.counts.done / phase.counts.total) * 100) : 0
     return `
@@ -637,7 +604,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
                   (t) =>
                     `<div class="board-card ${t.status}" data-open-task="${t.id}" data-status="${t.status}">
                        <span class="card-text">${escapeHtml(t.title)}</span>
-                       <span class="card-meta">${t.assignee ? `<span class="chip assignee">@${escapeHtml(t.assignee)}</span>` : ''}${t.feature ? `<span class="chip tag">${escapeHtml(t.feature)}</span>` : ''}</span>
+                       <span class="card-meta">${releaseByPhase.get(t.phaseId) ? `<span class="chip release">🚀 ${escapeHtml(releaseByPhase.get(t.phaseId)!)}</span>` : ''}${t.assignee ? `<span class="chip assignee">@${escapeHtml(t.assignee)}</span>` : ''}${t.feature ? `<span class="chip tag">${escapeHtml(t.feature)}</span>` : ''}</span>
                      </div>`,
                 )
                 .join('')}
@@ -943,16 +910,6 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   const wire = () => {
     document.querySelectorAll<HTMLElement>('[data-go-home]').forEach((el) => {
       el.addEventListener('click', () => goHome())
-    })
-    document.querySelectorAll<HTMLButtonElement>('[data-breadcrumb]').forEach((b) => {
-      b.addEventListener('click', () => {
-        const a = b.dataset.breadcrumb
-        if (a === 'home') goHome()
-        else if (a === 'project' && projectId) void selectProject(projectId)
-        else if (a === 'phase' && phaseId) void selectPhase(phaseId)
-        else if (a === 'release' && releaseId) void openRelease(releaseId)
-        else if (a === 'task' && taskId) void openTask(taskId)
-      })
     })
     document.getElementById('login-btn')?.addEventListener('click', () => void login())
     document.getElementById('signup-btn')?.addEventListener('click', () => void signup())
