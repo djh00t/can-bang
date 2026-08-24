@@ -142,6 +142,11 @@ export function asksRoutes(services: AppServices): express.Router {
       }
       const claimRole = typeof req.body?.role === 'string' ? req.body.role.slice(0, 60) : undefined
       if (claimRole) db.prepare('UPDATE asks SET claim_role=? WHERE id=?').run(claimRole, ask.id)
+      if (access.identity.accountId) {
+        db.prepare(
+          'UPDATE agents SET current_task=?, current_doc=? WHERE account_id=? AND name=?',
+        ).run(ask.text.slice(0, 500), doc.id, access.identity.accountId, agent)
+      }
       services.emit(doc.id, 'ask.claimed', agent, access.identity.guest, { ask: ask.id, agent })
       const updated = db.prepare('SELECT * FROM asks WHERE id=?').get(ask.id) as AskRow
       res.json({ claimed: true, ask: askJson(updated) })

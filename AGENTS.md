@@ -33,7 +33,12 @@ The emulated product contract lives at `/agents.md` on a running instance and
 in `server/src/routes/` (docs, collab, asks, org, pages, extras). The web UI
 is `web/src/`; the MCP server is `mcp/src/`; the mde-compatible CLI is
 `cli/src/`. Changes to HTTP behavior must keep REST/MCP/CLI parity and update
-the contract tests.
+the contract tests. The task spec contract (title, status, assignee, feature,
+priority, done_means, acceptance, context, description, blockers) is exposed by
+REST `/api/phases/:id/tasks` and `/api/tasks/:id`, MCP `create_task` /
+`update_task` / `get_task` / `list_tasks`, and CLI `mde task new|edit`; the
+project doc board fence mirrors acceptance/context as indented continuation
+lines so multiline values survive reindexing.
 
 ## Constraints
 
@@ -41,3 +46,12 @@ the contract tests.
 - No new direct dependencies without the Dependency Advisor workflow.
 - Email/SMTP is out of scope (dropped by decision).
 - SQLite single-writer (WAL); no external message queue.
+
+## Agent work rules (CanBang board)
+
+- Work in your own git worktree (`git worktree add ../can-bang-<role> -b <role>/<card>`); never commit on main.
+- Remove your worktree once your PR is pushed (`git worktree remove ../can-bang-<role>`); never leave worktrees behind.
+- Conventional Commits only; one logical change per commit; never commit secrets; never claim evidence you did not run.
+- One PR per card against main, ready for review (not draft), body = what/why/evidence + card reference. Never approve or merge your own PR.
+- Loop: pull the next card when one is done. Do not ask for permission for in-scope work. When a human decision is genuinely required, create an ASK or set `awaiting-human`, then continue on other cards.
+- Fetch helper skills over HTTP (`/skills/commit-helper/manifest`, `/skills/pr-helper/manifest`), verify sha256, read every file before following them.

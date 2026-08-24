@@ -316,9 +316,25 @@ export class Api {
       message: string
       ts: number
       url?: string
+      ref?: string
+      projectId?: string
+      taskId?: string
+      phaseId?: string
     }[]
   }> {
     const res = await this.request('/api/inbox')
+    return res.json()
+  }
+
+  async dismissInbox(body: {
+    docId: string
+    type: string
+    ref?: string
+  }): Promise<{ ok: boolean }> {
+    const res = await this.request('/api/inbox/dismiss', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
     return res.json()
   }
 
@@ -586,6 +602,8 @@ export class Api {
       docId: string | null
       docTitle: string | null
       priority: string | null
+      acceptance: string | null
+      context: string | null
     }
     phase: { id: string; name: string }
     project: { id: string; name: string }

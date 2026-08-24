@@ -408,11 +408,11 @@ export function extrasRoutes(services: AppServices): express.Router {
           .prepare('SELECT COALESCE(MAX(version),0)+1 AS v FROM skill_releases WHERE folder_id=?')
           .get(folder.id) as { v: number }
       ).v
-      const manifest = buildManifest(services, req, folder.id, undefined)
+      const manifest = buildManifest(services, req, folder.id, undefined, true)
       const notes = typeof req.body?.notes === 'string' ? req.body.notes.slice(0, 500) : undefined
       db.prepare(
         'INSERT INTO skill_releases (folder_id, version, notes, manifest, created_at) VALUES (?,?,?,?,?)',
-      ).run(folder.id, next, notes ?? null, JSON.stringify(manifest), now())
+      ).run(folder.id, next, notes ?? null, JSON.stringify({ ...manifest, version: next }), now())
       res.status(201).json({ version: next, notes: notes ?? null })
     }),
   )
@@ -500,6 +500,7 @@ export function buildManifest(
   req: Request,
   folderId: string,
   version?: number,
+  rebuild = false,
 ): Manifest | null {
   const { db } = services
   const folder = db.prepare('SELECT * FROM folders WHERE id=?').get(folderId) as
@@ -545,7 +546,7 @@ export function buildManifest(
   const latest = db
     .prepare('SELECT manifest FROM skill_releases WHERE folder_id=? ORDER BY version DESC LIMIT 1')
     .get(folder.id) as { manifest: string } | undefined
-  if (latest) {
+  if (latest && !rebuild) {
     const m = JSON.parse(latest.manifest) as Manifest
     v = m.version
     return { ...m, version: v }
