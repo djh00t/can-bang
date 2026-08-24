@@ -71,6 +71,51 @@ describe('workspace hierarchy', () => {
     expect(overview.body.tasks[0].status).toBe('done')
   })
 
+  it('persists project settings, configures GitHub, and mints owner-scoped keys', async () => {
+    const { agent: owner } = await account(ctx.app, 'settings-owner')
+    const { agent: other } = await account(ctx.app, 'settings-other')
+    const pid = (
+      await owner.post('/api/projects').send({ name: 'Before', description: 'Old description' })
+    ).body.project.id as string
+
+    const patch = await owner
+      .patch('/api/projects/' + pid)
+      .send({ name: 'After', description: 'New description' })
+    expect(patch.status).toBe(200)
+    const github = await owner.patch('/api/projects/' + pid + '/github').send({
+      enabled: true,
+      repo: 'acme/demo',
+      token: 'test-token',
+    })
+    expect(github.status).toBe(200)
+
+    const first = await owner.post('/api/projects/' + pid + '/key').send({ label: 'automation' })
+    expect(first.status).toBe(201)
+    expect(first.body.key).toMatch(/^pbk_[A-Za-z0-9_-]+$/)
+    const second = await owner.post('/api/projects/' + pid + '/key').send({ label: 'release' })
+    expect(second.status).toBe(201)
+    expect(second.body.key).not.toBe(first.body.key)
+
+    const overview = await owner.get('/api/projects/' + pid)
+    expect(overview.body.project.name).toBe('After')
+    expect(overview.body.project.description).toBe('New description')
+    expect(overview.body.project.github).toMatchObject({ enabled: true, repo: 'acme/demo' })
+    expect(JSON.stringify(overview.body)).not.toContain(first.body.key)
+    const stored = ctx.db
+      .prepare(
+        'SELECT project_id, key_hash, label FROM project_keys WHERE project_id=? ORDER BY created_at',
+      )
+      .all(pid) as { project_id: string; key_hash: string; label: string | null }[]
+    expect(stored).toHaveLength(2)
+    expect(stored[0]).toMatchObject({ project_id: pid, label: 'automation' })
+    expect(stored[0].key_hash).not.toBe(first.body.key)
+
+    const denied = await other
+      .post('/api/projects/' + pid + '/key')
+      .send({ label: 'wrong-account' })
+    expect(denied.status).toBe(404)
+  })
+
   it('aggregates the feature-status matrix across phases', async () => {
     const { agent } = await account(ctx.app, 'owner-matrix')
     const pid = (await agent.post('/api/projects').send({ name: 'Gamma' })).body.project

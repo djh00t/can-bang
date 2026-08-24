@@ -1,10 +1,11 @@
 import express, { type Request, type Response } from 'express'
-import { ApiError, badRequest, notFound, randomId } from '@can-bang/core'
+import { ApiError, badRequest, notFound, randomId, secret } from '@can-bang/core'
 import type { AppServices } from '../service.js'
 import type { Db } from '../db.js'
 import { resolveAccess } from '../auth.js'
 import { asyncHandler } from '../util.js'
 import { now } from '@can-bang/core'
+import { hashSecret } from '../crypto.js'
 import { realGh, syncProjectGithub } from '../github.js'
 import { appendCard, reindexBoard, reindexIfStale, updateCard } from '../board-sync.js'
 import { bumpContent } from '../db.js'
@@ -411,16 +412,53 @@ state: building
       const project = projectOf(db, accountId, req.params.id!)
       const name =
         typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 120) : undefined
+      const description =
+        req.body?.description === null
+          ? null
+          : typeof req.body?.description === 'string'
+            ? req.body.description.trim().slice(0, 500) || null
+            : undefined
       const docId =
         req.body?.doc_id === null
           ? null
           : typeof req.body?.doc_id === 'string'
             ? req.body.doc_id
             : undefined
-      db.prepare(
-        'UPDATE projects SET name=COALESCE(?, name), doc_id=COALESCE(?, doc_id), updated_at=? WHERE id=?',
-      ).run(name ?? null, docId ?? null, now(), project.id)
+      if (name !== undefined && !name) throw badRequest('name required')
+      const updates: string[] = []
+      const params: (string | number | null)[] = []
+      if (name !== undefined) {
+        updates.push('name=?')
+        params.push(name)
+      }
+      if (description !== undefined) {
+        updates.push('description=?')
+        params.push(description)
+      }
+      if (docId !== undefined) {
+        updates.push('doc_id=?')
+        params.push(docId)
+      }
+      updates.push('updated_at=?')
+      params.push(now(), project.id)
+      db.prepare(`UPDATE projects SET ${updates.join(', ')} WHERE id=?`).run(...params)
       res.json({ ok: true })
+    }),
+  )
+
+  r.post(
+    '/api/projects/:id/key',
+    asyncHandler((req: Request, res: Response) => {
+      const accountId = accountIdOf(req)
+      const project = projectOf(db, accountId, req.params.id!)
+      const key = `pbk_${secret(28)}`
+      const id = randomId(14)
+      const label =
+        typeof req.body?.label === 'string' ? req.body.label.trim().slice(0, 80) || null : null
+      db.prepare(
+        'INSERT INTO project_keys (id, project_id, key_hash, label, created_at) VALUES (?, ?, ?, ?, ?)',
+      ).run(id, project.id, hashSecret(key), label, now())
+      res.status(201).json({ ok: true, id, key })
     }),
   )
 
