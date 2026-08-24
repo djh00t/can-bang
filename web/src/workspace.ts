@@ -70,6 +70,19 @@ const STATUS_LABEL: Record<string, string> = {
   none: '—',
 }
 
+export function renderProjectSyncIndicator(github: {
+  enabled: boolean
+  repo: string | null
+  syncEnabled: boolean
+}): string {
+  if (!github.enabled) return ''
+  const state = github.syncEnabled ? 'Synced' : 'Configured'
+  return `<div class="ws-sync-indicator" role="status" aria-label="GitHub sync status">
+    <span class="status-pill ${github.syncEnabled ? 'sp-pass' : 'sp-pending'}">${state}</span>
+    <span class="muted small">GitHub · ${escapeHtml(github.repo ?? 'repository')}</span>
+  </div>`
+}
+
 function hqContent(name: string): string {
   return `# ${name} — HQ
 
@@ -568,6 +581,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
         <div>
           <h2>${escapeHtml(data.project.name)}</h2>
           ${data.project.description ? `<div class="muted">${escapeHtml(data.project.description)}</div>` : ''}
+          ${renderProjectSyncIndicator(data.project.github)}
         </div>
         <div class="ws-tabs" role="tablist">
           <button class="ws-tab ${view === 'overview' ? 'on' : ''}" data-view="overview">Overview</button>
