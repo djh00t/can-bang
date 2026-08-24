@@ -110,6 +110,7 @@ async function main(): Promise<void> {
     })
     ws.on('close', () => {
       bus.off(docId, onEvent)
+      broadcast(docId, { type: 'cursor', name, cursor: null })
       wsClients.get(docId)?.delete(client)
     })
   })
