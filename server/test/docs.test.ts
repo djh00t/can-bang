@@ -156,6 +156,15 @@ describe('docs core', () => {
     const { agent: outsider } = await account(ctx.app, 'private-outsider')
     const denied = await outsider.post(`/api/docs/${privateDoc.body.doc.id}/duplicate`).send({})
     expect(denied.status).toBe(403)
+    const viewShare = await privateOwner
+      .post(`/api/docs/${privateDoc.body.doc.id}/shares`)
+      .send({ role: 'view' })
+    expect(viewShare.status).toBe(200)
+    const sharedCopy = await outsider
+      .post(`/api/docs/${privateDoc.body.doc.id}/duplicate`)
+      .set('x-share-key', viewShare.body.share.secret)
+      .send({})
+    expect(sharedCopy.status).toBe(201)
   })
 
   it('deletes documents and their dependent records', async () => {

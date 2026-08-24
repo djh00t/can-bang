@@ -56,6 +56,7 @@ export interface TaskRow {
   description: string | null
   blockers: string | null
   doc_id: string | null
+  priority: string | null
   created_at: number
   updated_at: number
 }
@@ -345,6 +346,7 @@ state: building
           assignee: t.assignee,
           feature: t.feature,
           done_means: t.done_means,
+          priority: t.priority,
           description: t.description,
           blockers: t.blockers,
           docId: t.doc_id,
@@ -571,6 +573,7 @@ state: building
           assignee: t.assignee,
           feature: t.feature,
           done_means: t.done_means,
+          priority: t.priority,
           docId: t.doc_id,
         })),
       })
@@ -599,6 +602,8 @@ state: building
       const blockers =
         typeof req.body?.blockers === 'string' ? req.body.blockers.slice(0, 500) : null
       const taskDocId = typeof req.body?.doc_id === 'string' ? req.body.doc_id.slice(0, 40) : null
+      const priority =
+        typeof req.body?.priority === 'string' ? req.body.priority.slice(0, 20) : null
       const project = db
         .prepare('SELECT id, doc_id FROM projects WHERE id=?')
         .get(phase.project_id) as {
@@ -619,12 +624,13 @@ state: building
           feature,
           doneMeans,
           release,
+          priority,
         })
       }
       // description/blockers/doc link live on the task row (task metadata, not the card)
       db.prepare(
-        `INSERT INTO tasks (id, phase_id, title, status, assignee, feature, done_means, description, blockers, doc_id, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO tasks (id, phase_id, title, status, assignee, feature, done_means, priority, description, blockers, doc_id, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       ).run(
         id,
         phase.id,
@@ -633,6 +639,7 @@ state: building
         assignee,
         feature,
         doneMeans,
+        priority,
         description,
         blockers,
         taskDocId,
@@ -701,11 +708,17 @@ state: building
           : typeof req.body?.done_means === 'string'
             ? req.body.done_means.trim().slice(0, 500)
             : undefined
+      const priority =
+        req.body?.priority === null
+          ? null
+          : typeof req.body?.priority === 'string'
+            ? req.body.priority.trim().slice(0, 20)
+            : undefined
       if (status && status !== task.status)
         recordTaskEvent(db, task.id, task.phase_id, status, now())
       db.prepare(
         `UPDATE tasks SET status=COALESCE(?, status), title=COALESCE(?, title), assignee=COALESCE(?, assignee),
-           feature=COALESCE(?, feature), done_means=COALESCE(?, done_means),
+           feature=COALESCE(?, feature), done_means=COALESCE(?, done_means), priority=COALESCE(?, priority),
            description=COALESCE(?, description), blockers=COALESCE(?, blockers), doc_id=COALESCE(?, doc_id), updated_at=? WHERE id=?`,
       ).run(
         status ?? null,
@@ -713,6 +726,7 @@ state: building
         assignee ?? null,
         feature ?? null,
         doneMeans ?? null,
+        priority ?? null,
         description ?? null,
         blockers ?? null,
         docId ?? null,
@@ -734,6 +748,7 @@ state: building
           ...(assignee !== undefined ? { assignee } : {}),
           ...(feature !== undefined ? { feature } : {}),
           ...(doneMeans !== undefined ? { doneMeans } : {}),
+          ...(priority !== undefined ? { priority } : {}),
         })
       }
       reindexBoard(db, projectRow.project_id)
@@ -769,6 +784,7 @@ state: building
           blockers: task.blockers,
           docId: task.doc_id,
           docTitle: docTitle(db, task.doc_id),
+          priority: task.priority,
         },
         phase: { id: phase.id, name: phase.name },
         project: { id: project.id, name: project.name },

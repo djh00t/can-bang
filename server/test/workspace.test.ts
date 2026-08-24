@@ -118,6 +118,7 @@ describe('workspace hierarchy', () => {
     const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({
       title: 'T',
       feature: 'F',
+      priority: 'high',
       description: 'desc',
       blockers: 'needs token scope',
       done_means: 'works on retry',
@@ -126,10 +127,17 @@ describe('workspace hierarchy', () => {
     const detail = await agent.get(`/api/tasks/${taskId}`)
     expect(detail.body.task.description).toBe('desc')
     expect(detail.body.task.blockers).toBe('needs token scope')
+    expect(detail.body.task.priority).toBe('high')
+    const overview0 = await agent.get(`/api/projects/${pid}`)
+    const doc0 = await agent.get(`/api/docs/${overview0.body.project.docId}/content`)
+    expect(doc0.text).toContain('priority: high')
     const patch = await agent.patch(`/api/tasks/${taskId}`).send({ status: 'done', doc_id: docId })
     expect(patch.status).toBe(200)
+    const priorityPatch = await agent.patch(`/api/tasks/${taskId}`).send({ priority: 'low' })
+    expect(priorityPatch.status).toBe(200)
     const detail2 = await agent.get(`/api/tasks/${taskId}`)
     expect(detail2.body.task.docTitle).toBe('Phase doc')
+    expect(detail2.body.task.priority).toBe('low')
     const burndown = await agent.get(`/api/phases/${phaseId}/burndown?days=30`)
     expect(burndown.status).toBe(200)
     expect(burndown.body.total).toBe(1)
