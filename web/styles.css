@@ -788,6 +788,24 @@ textarea:focus {
   font-size: 12px;
   padding: 5px 0;
   border-top: 1px solid var(--border);
+  font-family: inherit;
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  width: 100%;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+  display: block;
+}
+
+.ws-inbox-item:hover {
+  background: var(--panel-2, #f8f9fb);
+}
+
+.ws-inbox-title {
+  font-weight: 600;
 }
 
 .small {

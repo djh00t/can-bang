@@ -316,9 +316,22 @@ export class Api {
       message: string
       ts: number
       url?: string
+      ref?: string
     }[]
   }> {
     const res = await this.request('/api/inbox')
+    return res.json()
+  }
+
+  async dismissInbox(body: {
+    docId: string
+    type: string
+    ref?: string
+  }): Promise<{ ok: boolean }> {
+    const res = await this.request('/api/inbox/dismiss', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
     return res.json()
   }
 

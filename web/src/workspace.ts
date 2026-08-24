@@ -215,6 +215,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     message: string
     ts: number
     url?: string
+    ref?: string
   }[] = []
   let taskId: string | null = null
   let taskDetail: Awaited<ReturnType<Api['taskDetail']>> | null = null
@@ -541,17 +542,73 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
           ? inbox
               .slice(0, 20)
               .map(
-                (i) =>
-                  `<div class="ws-inbox-item">${
-                    i.url
-                      ? `<a href="${escapeHtml(i.url)}" target="_blank" rel="noopener" title="opens in a new tab">${escapeHtml(i.title)} ↗</a>`
-                      : `<a href="/d/${i.docId}">${escapeHtml(i.title)}</a>`
-                  } <span class="tag">${escapeHtml(i.type)}</span><div class="muted small">${escapeHtml(i.message.slice(0, 90))}</div></div>`,
+                (i, idx) =>
+                  `<button class="ws-inbox-item" data-inbox-item="${idx}" title="open actions">
+                     <span class="ws-inbox-title">${escapeHtml(i.title)}${i.url ? ' ↗' : ''}</span>
+                     <span class="tag">${escapeHtml(i.type)}</span>
+                     <div class="muted small">${escapeHtml(i.message.slice(0, 90))}</div>
+                   </button>`,
               )
               .join('')
           : '<span class="muted small">Nothing needs you right now.</span>'
       }
     </div>`
+
+  const wireInboxItems = () => {
+    root.querySelectorAll<HTMLButtonElement>('[data-inbox-item]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const item = inbox[Number(b.dataset.inboxItem)]
+        if (item) openAttentionModal(item)
+      })
+    })
+  }
+
+  const openAttentionModal = (item: {
+    docId: string
+    title: string
+    type: string
+    message: string
+    url?: string
+    ref?: string
+  }) => {
+    const overlay = document.createElement('div')
+    overlay.className = 'ws-modal-overlay'
+    overlay.innerHTML = `
+      <div class="ws-modal" role="dialog" aria-modal="true" aria-label="Attention">
+        <div class="ws-modal-head"><b>${escapeHtml(item.title)}</b><button type="button" class="btn sm" data-close>×</button></div>
+        <div class="ws-modal-body">
+          <div class="muted small"><span class="tag">${escapeHtml(item.type)}</span> · ${escapeHtml(item.message)}</div>
+          <div class="ws-modal-actions">
+            ${item.url ? `<button type="button" class="btn primary" id="att-open">Open ↗</button>` : ''}
+            ${item.type !== 'pr' ? `<a class="btn" href="/d/${escapeHtml(item.docId)}">Open doc</a>` : ''}
+            <button type="button" class="btn" id="att-dismiss">Dismiss</button>
+            <button type="button" class="btn" data-close>Close</button>
+          </div>
+        </div>
+      </div>`
+    document.body.appendChild(overlay)
+    const close = () => overlay.remove()
+    overlay.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', close))
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close()
+    })
+    const openBtn = overlay.querySelector('#att-open')
+    if (openBtn && item.url) {
+      openBtn.addEventListener('click', () => {
+        window.open(item.url, '_blank', 'noopener')
+        close()
+      })
+    }
+    const dismissBtn = overlay.querySelector('#att-dismiss')
+    if (dismissBtn) {
+      dismissBtn.addEventListener('click', () => {
+        void api.dismissInbox({ docId: item.docId, type: item.type, ref: item.ref }).then(() => {
+          close()
+          return refreshInbox()
+        })
+      })
+    }
+  }
 
   const refreshInbox = async () => {
     if (!me) return
@@ -561,7 +618,10 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       return
     }
     const el = root.querySelector('.ws-inbox')
-    if (el) el.outerHTML = renderInbox()
+    if (el) {
+      el.outerHTML = renderInbox()
+      wireInboxItems()
+    }
   }
 
   const renderMain = (phase: Phase | null, phaseTasks: ProjectData['tasks']) => {
@@ -1075,6 +1135,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     document.querySelectorAll<HTMLButtonElement>('[data-demo-status]').forEach((b) => {
       b.addEventListener('click', () => void setDemoStatus(b.dataset.demoStatus!))
     })
+    wireInboxItems()
     document
       .getElementById('run-release-review')
       ?.addEventListener('click', () => void runReleaseReview())

@@ -210,6 +210,7 @@ export function orgRoutes(services: AppServices): express.Router {
         ts: number
         level?: string
         url?: string
+        ref?: string
       }[] = []
       const awaiting = db.prepare('SELECT * FROM docs WHERE owner_id=?').all(accountId) as DocRow[]
       for (const d of awaiting) {
@@ -220,6 +221,7 @@ export function orgRoutes(services: AppServices): express.Router {
             type: 'status',
             message: 'Agent needs a human (awaiting-human)',
             ts: d.updated_at,
+            ref: 'status',
           })
         }
       }
@@ -235,6 +237,7 @@ export function orgRoutes(services: AppServices): express.Router {
           type: 'ask',
           message: a.text,
           ts: a.created_at,
+          ref: a.id,
         })
       }
       const logs = db
@@ -242,6 +245,7 @@ export function orgRoutes(services: AppServices): express.Router {
           `SELECT n.*, d.title FROM notify_log n JOIN docs d ON d.id=n.doc_id WHERE d.owner_id=? ORDER BY n.created_at DESC LIMIT 200`,
         )
         .all(accountId) as {
+        id: number
         doc_id: string
         title: string
         level: string
@@ -256,6 +260,7 @@ export function orgRoutes(services: AppServices): express.Router {
           message: l.message,
           ts: l.created_at,
           level: l.level,
+          ref: String(l.id),
         })
       }
       const prs = db
@@ -268,6 +273,7 @@ export function orgRoutes(services: AppServices): express.Router {
         project_id: string
         project_name: string
         pr_number: number
+        id: number
         title: string
         url: string
         updated_at: number
@@ -280,10 +286,43 @@ export function orgRoutes(services: AppServices): express.Router {
           message: pr.title,
           ts: pr.updated_at,
           url: pr.url,
+          ref: String(pr.pr_number),
         })
       }
-      items.sort((a, b) => b.ts - a.ts)
-      res.json({ items: items.slice(0, 200) })
+      const dismissals = db
+        .prepare(
+          `SELECT doc_id, kind, ref FROM inbox_dismissals
+           WHERE doc_id IN (SELECT id FROM docs WHERE owner_id=?) OR doc_id IN (SELECT id FROM projects WHERE owner_id=?)`,
+        )
+        .all(accountId, accountId) as { doc_id: string; kind: string; ref: string }[]
+      const dismissedSet = new Set(dismissals.map((d) => `${d.doc_id}:${d.kind}:${d.ref}`))
+      const visible = items.filter((i) => !dismissedSet.has(`${i.docId}:${i.type}:${i.ref ?? ''}`))
+      visible.sort((a, b) => b.ts - a.ts)
+      res.json({ items: visible.slice(0, 200) })
+    }),
+  )
+
+  r.post(
+    '/api/inbox/dismiss',
+    asyncHandler((req: Request, res: Response) => {
+      const access = resolveAccess(db, req, '')
+      if (!access.identity.accountId) throw new ApiError(401, 'account required')
+      const accountId = access.identity.accountId
+      const docId = typeof req.body?.docId === 'string' ? req.body.docId : ''
+      const kind = typeof req.body?.type === 'string' ? req.body.type : ''
+      const ref = typeof req.body?.ref === 'string' ? req.body.ref : ''
+      if (!docId || !kind) throw badRequest('docId and type required')
+      const ownedDoc = db
+        .prepare('SELECT id FROM docs WHERE id=? AND owner_id=?')
+        .get(docId, accountId)
+      const ownedProject = db
+        .prepare('SELECT id FROM projects WHERE id=? AND owner_id=?')
+        .get(docId, accountId)
+      if (!ownedDoc && !ownedProject) throw notFound('item not found')
+      db.prepare(
+        'INSERT INTO inbox_dismissals (doc_id, kind, ref, dismissed_at) VALUES (?,?,?,?) ON CONFLICT(doc_id, kind, ref) DO NOTHING',
+      ).run(docId, kind, ref || 'status', now())
+      res.json({ ok: true })
     }),
   )
 

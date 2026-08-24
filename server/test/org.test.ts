@@ -225,4 +225,27 @@ describe('accounts and org', () => {
     expect(types).toContain('ask')
     expect(types).toContain('notify')
   })
+
+  it('dismisses attention items so they leave the inbox', async () => {
+    const { agent } = await account(ctx.app, 'dismiss-owner')
+    const doc = await agent.post('/api/docs').send({ title: 'D', content: HQ })
+    const id = doc.body.doc.id as string
+    await agent.post(`/api/docs/${id}/status`).send({ state: 'awaiting-human', note: 'need input' })
+    const ask = await agent.post(`/api/docs/${id}/asks`).send({ text: 'open ask' })
+    await agent.post(`/api/docs/${id}/notify`).send({ message: 'heads up', level: 'info' })
+    const before = await agent.get('/api/inbox')
+    expect(before.body.items.some((i: { type: string }) => i.type === 'status')).toBe(true)
+    expect(before.body.items.some((i: { type: string }) => i.type === 'ask')).toBe(true)
+    await agent.post('/api/inbox/dismiss').send({ docId: id, type: 'status', ref: 'status' })
+    await agent.post('/api/inbox/dismiss').send({ docId: id, type: 'ask', ref: ask.body.ask.id })
+    const after = await agent.get('/api/inbox')
+    expect(after.body.items.some((i: { type: string }) => i.type === 'status')).toBe(false)
+    expect(after.body.items.some((i: { type: string }) => i.type === 'ask')).toBe(false)
+    expect(after.body.items.some((i: { type: string }) => i.type === 'notify')).toBe(true)
+    const outsider = await account(ctx.app, 'dismiss-outsider')
+    const denied = await outsider.agent
+      .post('/api/inbox/dismiss')
+      .send({ docId: id, type: 'status' })
+    expect(denied.status).toBe(404)
+  })
 })
