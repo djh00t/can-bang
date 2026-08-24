@@ -171,6 +171,16 @@ export function renderAgentPromptModal(link: string, text: string, kickoff: stri
     </div>`
 }
 
+export function renderProjectTreeLabel(
+  project: { id: string; name: string; done: number; total: number },
+  selected: boolean,
+  expanded: boolean,
+): string {
+  const id = escapeHtml(project.id)
+  return `<button class="ws-tree-label ${selected ? 'sel' : ''}" data-project-toggle="${id}" aria-expanded="${expanded}" aria-controls="project-children-${id}">📁 ${escapeHtml(project.name)}
+    <span class="ws-count">${project.done}/${project.total}</span></button>`
+}
+
 function openInfoModal(title: string, html: string): void {
   const overlay = document.createElement('div')
   overlay.className = 'ws-modal-overlay'
@@ -224,6 +234,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   let detail: 'project' | 'release' = 'project'
   let releaseId: string | null = null
   let data: ProjectData | null = null
+  const projectTreeData = new Map<string, ProjectData>()
   let matrixData: MatrixData | null = null
   let releaseDetail: Awaited<ReturnType<Api['releaseDetail']>> | null = null
   let inbox: {
@@ -257,6 +268,10 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   }
   const chevron = (key: string) =>
     `<button class="ws-chev" data-toggle="${key}" aria-expanded="${isOpen(key)}" aria-label="toggle">${isOpen(key) ? '▾' : '▸'}</button>`
+  const projectChevron = (id: string) => {
+    const key = `project:${id}`
+    return `<button class="ws-chev" data-project-toggle="${escapeHtml(id)}" aria-expanded="${isOpen(key)}" aria-controls="project-children-${escapeHtml(id)}" aria-label="toggle">${isOpen(key) ? '▾' : '▸'}</button>`
+  }
 
   const parseRoute = () => {
     const segs = location.pathname.split('/').filter(Boolean)
@@ -327,6 +342,12 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     }
   }
 
+  const loadProjectData = async (id: string): Promise<ProjectData> => {
+    const project = await api.project(id)
+    projectTreeData.set(id, project)
+    return project
+  }
+
   const loadChat = async () => {
     if (!data?.project.docId) {
       chat = null
@@ -343,12 +364,24 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
 
   const loadProject = async () => {
     if (!projectId) return
-    data = await api.project(projectId)
+    data = await loadProjectData(projectId)
     if (view === 'matrix') matrixData = await api.matrix(projectId)
     if (phaseId && !burndownCache.has(phaseId)) {
       burndownCache.set(phaseId, await api.phaseBurndown(phaseId))
     }
     await loadChat()
+  }
+
+  const toggleProject = async (id: string) => {
+    const key = `project:${id}`
+    if (expanded.has(key)) {
+      expanded.delete(key)
+      render()
+      return
+    }
+    if (!projectTreeData.has(id)) await loadProjectData(id)
+    expanded.add(key)
+    render()
   }
 
   const goHome = () => {
@@ -381,7 +414,8 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     render()
   }
 
-  const selectPhase = async (id: string) => {
+  const selectPhase = async (id: string, ownerProjectId = projectId) => {
+    if (ownerProjectId) projectId = ownerProjectId
     phaseId = id
     detail = 'project'
     view = 'pipeline'
@@ -401,7 +435,8 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     render()
   }
 
-  const openTask = async (id: string) => {
+  const openTask = async (id: string, ownerProjectId = projectId) => {
+    if (ownerProjectId) projectId = ownerProjectId
     taskDetail = await api.taskDetail(id)
     taskId = id
     phaseId = taskDetail.phase.id
@@ -420,7 +455,12 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     render()
   }
 
-  const openRelease = async (id: string) => {
+  const openRelease = async (id: string, ownerProjectId = projectId) => {
+    if (ownerProjectId) projectId = ownerProjectId
+    if (ownerProjectId && data?.project.id !== ownerProjectId) {
+      data = await loadProjectData(ownerProjectId)
+      await loadChat()
+    }
     releaseId = id
     detail = 'release'
     releaseDetail = await api.releaseDetail(id)
@@ -467,17 +507,17 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
                 ${projects
                   .map((p) => {
                     const pk = `project:${p.id}`
-                    const pd = data?.project.id === p.id ? data : null
+                    const pd =
+                      projectTreeData.get(p.id) ?? (data?.project.id === p.id ? data : null)
                     return `
                   <div class="ws-tree-node">
                     <div class="ws-tree-row">
-                      ${chevron(pk)}
-                      <button class="ws-tree-label ${p.id === projectId ? 'sel' : ''}" data-project="${p.id}">📁 ${escapeHtml(p.name)}
-                        <span class="ws-count">${p.done}/${p.total}</span></button>
+                      ${projectChevron(p.id)}
+                      ${renderProjectTreeLabel(p, p.id === projectId, isOpen(pk))}
                     </div>
                     ${
                       isOpen(pk)
-                        ? `<div class="ws-tree-children">
+                        ? `<div id="project-children-${escapeHtml(p.id)}" class="ws-tree-children">
                             ${
                               pd
                                 ? pd.phases
@@ -491,7 +531,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
                               <div class="ws-tree-node">
                                 <div class="ws-tree-row">
                                   ${chevron(phk)}
-                                  <button class="ws-tree-label ${ph.id === phaseId ? 'sel' : ''}" data-phase="${ph.id}">◈ ${escapeHtml(ph.name)}
+                                  <button class="ws-tree-label ${ph.id === phaseId ? 'sel' : ''}" data-phase="${ph.id}" data-phase-project="${escapeHtml(p.id)}">◈ ${escapeHtml(ph.name)}
                                     <span class="ws-count">${ph.counts.done}/${ph.counts.total}</span></button>
                                 </div>
                                 ${
@@ -500,7 +540,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
                                         ${phaseReleases
                                           .map(
                                             (rl) =>
-                                              `<button class="ws-tree-leaf" data-tree-release="${rl.id}" data-release-phase="${rl.phaseId}">🚀 ${escapeHtml(rl.name)} <span class="status-pill sp-${rl.demo_status}">${rl.demo_status}</span></button>`,
+                                              `<button class="ws-tree-leaf" data-tree-release="${rl.id}" data-release-project="${escapeHtml(p.id)}" data-release-phase="${rl.phaseId}">🚀 ${escapeHtml(rl.name)} <span class="status-pill sp-${rl.demo_status}">${rl.demo_status}</span></button>`,
                                           )
                                           .join('')}
                                         ${ph.docId ? `<a class="ws-tree-leaf doc-link" href="/d/${encodeURIComponent(ph.docId)}">📄 ${escapeHtml(ph.docTitle ?? 'phase doc')}</a>` : ''}
@@ -515,7 +555,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
                                                   .filter((t) => t.phaseId === ph.id)
                                                   .map(
                                                     (t) =>
-                                                      `<button class="ws-tree-leaf" data-open-task="${t.id}"><span class="dot ws-${t.status}"></span>${escapeHtml(t.title)}</button>`,
+                                                      `<button class="ws-tree-leaf" data-open-task="${t.id}" data-task-project="${escapeHtml(p.id)}"><span class="dot ws-${t.status}"></span>${escapeHtml(t.title)}</button>`,
                                                   )
                                                   .join('')}
                                               </div>`
@@ -1087,6 +1127,9 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     document
       .getElementById('new-hq')
       ?.addEventListener('click', () => void createDoc('agent-team-hq'))
+    document.querySelectorAll<HTMLButtonElement>('[data-project-toggle]').forEach((b) => {
+      b.addEventListener('click', () => void toggleProject(b.dataset.projectToggle!))
+    })
     document.querySelectorAll<HTMLButtonElement>('[data-project]').forEach((b) => {
       b.addEventListener('click', () => void selectProject(b.dataset.project!))
     })
@@ -1094,21 +1137,34 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       b.addEventListener('click', () => toggle(b.dataset.toggle!))
     })
     document.querySelectorAll<HTMLButtonElement>('[data-phase]').forEach((b) => {
-      b.addEventListener('click', () => void selectPhase(b.dataset.phase!))
+      b.addEventListener('click', () => {
+        const ownerProjectId = b.dataset.phaseProject ?? projectId
+        if (ownerProjectId) void selectPhase(b.dataset.phase!, ownerProjectId)
+      })
     })
     document.querySelectorAll<HTMLButtonElement>('[data-release]').forEach((b) => {
       b.addEventListener('click', () => void openRelease(b.dataset.release!))
     })
     document.querySelectorAll<HTMLButtonElement>('[data-tree-release]').forEach((b) => {
       b.addEventListener('click', () => {
+        const ownerProjectId = b.dataset.releaseProject ?? projectId
         if (view === 'pipeline') {
-          phaseId = b.dataset.releasePhase ?? null
-          if (projectId) expanded.add(`project:${projectId}`)
-          if (phaseId) expanded.add(`phase:${phaseId}`)
-          syncUrl()
-          render()
+          void (async () => {
+            if (ownerProjectId) {
+              projectId = ownerProjectId
+              if (data?.project.id !== ownerProjectId) {
+                data = await loadProjectData(ownerProjectId)
+                await loadChat()
+              }
+            }
+            phaseId = b.dataset.releasePhase ?? null
+            if (projectId) expanded.add(`project:${projectId}`)
+            if (phaseId) expanded.add(`phase:${phaseId}`)
+            syncUrl()
+            render()
+          })()
         } else {
-          void openRelease(b.dataset.treeRelease!)
+          if (ownerProjectId) void openRelease(b.dataset.treeRelease!, ownerProjectId)
         }
       })
     })
@@ -1122,7 +1178,10 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       )
     })
     document.querySelectorAll<HTMLButtonElement>('[data-open-task]').forEach((b) => {
-      b.addEventListener('click', () => void openTask(b.dataset.openTask!))
+      b.addEventListener('click', () => {
+        const ownerProjectId = b.dataset.taskProject ?? projectId
+        if (ownerProjectId) void openTask(b.dataset.openTask!, ownerProjectId)
+      })
     })
     document.querySelectorAll<HTMLButtonElement>('[data-close-task]').forEach((b) => {
       b.addEventListener('click', () => closeTask())
