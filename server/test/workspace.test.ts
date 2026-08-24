@@ -147,6 +147,25 @@ describe('workspace hierarchy', () => {
     expect(overview.body.phases[0].docTitle).toBe('Phase doc')
   })
 
+  it('clears task priority when the project has no HQ document', async () => {
+    const { agent } = await account(ctx.app, 'priority-clear')
+    const pid = (await agent.post('/api/projects').send({ name: 'Priority clear' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({
+      title: 'Clear priority',
+      priority: 'high',
+    })
+    const taskId = task.body.task.id as string
+    ctx.db.prepare('UPDATE projects SET doc_id=NULL WHERE id=?').run(pid)
+
+    const patch = await agent.patch(`/api/tasks/${taskId}`).send({ priority: null })
+    expect(patch.status).toBe(200)
+    const detail = await agent.get(`/api/tasks/${taskId}`)
+    expect(detail.body.task.priority).toBeNull()
+  })
+
   it('backfills HQ docs for projects without one', async () => {
     const { agent } = await account(ctx.app, 'bf-owner')
     const pid = (await agent.post('/api/projects').send({ name: 'Bare' })).body.project.id as string
