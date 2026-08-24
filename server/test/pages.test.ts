@@ -59,7 +59,10 @@ describe('pages, handoff, and 0.3 extras', () => {
       .set('user-agent', 'Mozilla/5.0 (social scraper)')
     expect(page.status).toBe(200)
     expect(page.text).toContain('<meta property="og:title" content="CanBang — Multi-Agent Canvas"')
-    expect(page.text).toContain('<meta property="og:image" content="/og-image.png"')
+    expect(page.text).toMatch(/<meta property="og:image" content="https?:\/\/[^"]+\/og-image\.png"/)
+    expect(page.text).toMatch(
+      /<meta name="twitter:image" content="https?:\/\/[^"]+\/og-image\.png"/,
+    )
     expect(page.text).toContain('<meta property="og:image:width" content="1200"')
     expect(page.text).toContain('<meta property="og:image:height" content="630"')
 

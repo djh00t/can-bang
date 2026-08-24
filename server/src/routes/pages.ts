@@ -74,7 +74,7 @@ export function pagesRoutes(services: AppServices): express.Router {
         res.type('text/markdown').send(handoffMarkdown(services, req, doc.id, access.role))
         return
       }
-      sendSpa(res, services)
+      sendSpa(res, services, req)
     }),
   )
 
@@ -107,7 +107,7 @@ export function pagesRoutes(services: AppServices): express.Router {
         res.status(403).json({ error: 'you do not have access to this document' })
         return
       }
-      sendSpa(res, services)
+      sendSpa(res, services, req)
     }),
   )
 
@@ -153,10 +153,15 @@ export function pagesRoutes(services: AppServices): express.Router {
   return r
 }
 
-function sendSpa(res: Response, services: AppServices): void {
+function sendSpa(res: Response, services: AppServices, req: Request): void {
   try {
     const html = readFileSync(webFile('index.html'), 'utf8')
-    res.type('html').send(html)
+    const imageUrl = clientUrl(req, services.config.publicUrl) + '/og-image.png'
+    const rendered = html.replaceAll(
+      'content="/og-image.png"',
+      'content="' + escapeHtmlAttribute(imageUrl) + '"',
+    )
+    res.type('html').send(rendered)
   } catch {
     res
       .type('html')
@@ -164,6 +169,19 @@ function sendSpa(res: Response, services: AppServices): void {
         '<!doctype html><html><head><title>CanBang</title></head><body><h1>CanBang</h1><p>The web editor is not bundled in this build.</p></body></html>',
       )
   }
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => {
+    const entities: Record<string, string> = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    }
+    return entities[char]!
+  })
 }
 
 export function agentManifest(
