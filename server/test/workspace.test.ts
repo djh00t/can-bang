@@ -147,6 +147,25 @@ describe('workspace hierarchy', () => {
     expect(overview.body.phases[0].docTitle).toBe('Phase doc')
   })
 
+  it('clears task priority when the project has no HQ document', async () => {
+    const { agent } = await account(ctx.app, 'priority-clear')
+    const pid = (await agent.post('/api/projects').send({ name: 'Priority clear' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({
+      title: 'Clear priority',
+      priority: 'high',
+    })
+    const taskId = task.body.task.id as string
+    ctx.db.prepare('UPDATE projects SET doc_id=NULL WHERE id=?').run(pid)
+
+    const patch = await agent.patch(`/api/tasks/${taskId}`).send({ priority: null })
+    expect(patch.status).toBe(200)
+    const detail = await agent.get(`/api/tasks/${taskId}`)
+    expect(detail.body.task.priority).toBeNull()
+  })
+
   it('backfills HQ docs for projects without one', async () => {
     const { agent } = await account(ctx.app, 'bf-owner')
     const pid = (await agent.post('/api/projects').send({ name: 'Bare' })).body.project.id as string
@@ -230,6 +249,46 @@ describe('workspace hierarchy', () => {
     expect(added).toBeTruthy()
     expect(added.assignee).toBe('agent')
     expect(added.status).toBe('todo')
+  })
+
+  it('indexes multiple agent-added cards with their own task markers', async () => {
+    const { agent } = await account(ctx.app, 'multi-card-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'Multi card sync' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const overview = await agent.get(`/api/projects/${pid}`)
+    const docId = overview.body.project.docId as string
+    const original = (await agent.get(`/api/docs/${docId}/content`)).text
+    const fenceStart = original.indexOf('```board')
+    const fenceEnd = original.indexOf('```', fenceStart + 3)
+    const content =
+      original.slice(0, fenceStart) +
+      '```board #tickets\n## Todo\n- [ ] First agent card\n  phase: P1\n- [ ] Second agent card\n  phase: P1\n## Doing\n## Testing\n## Done\n```' +
+      original.slice(fenceEnd + 3)
+    const version = (await agent.get(`/api/docs/${docId}/content`)).headers[
+      'x-doc-version'
+    ] as string
+    const put = await agent
+      .put(`/api/docs/${docId}/content`)
+      .set('if-match', version)
+      .send({ content })
+    expect(put.status).toBe(200)
+
+    const after = await agent.get(`/api/projects/${pid}`)
+    const board = (await agent.get(`/api/docs/${docId}/content`)).text
+    const firstTaskId = /- \[ \] First agent card\n  task: ([^\n]+)/.exec(board)?.[1]
+    const secondTaskId = /- \[ \] Second agent card\n  task: ([^\n]+)/.exec(board)?.[1]
+    expect(firstTaskId).toBeTruthy()
+    expect(secondTaskId).toBeTruthy()
+    expect(firstTaskId).not.toBe(secondTaskId)
+    expect(after.body.tasks.find((task: { id: string }) => task.id === firstTaskId).title).toBe(
+      'First agent card',
+    )
+    expect(after.body.tasks.find((task: { id: string }) => task.id === secondTaskId).title).toBe(
+      'Second agent card',
+    )
+    void phaseId
   })
 
   it('records doc-driven status changes in the burndown', async () => {

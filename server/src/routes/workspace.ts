@@ -743,7 +743,8 @@ state: building
         recordTaskEvent(db, task.id, task.phase_id, status, now())
       db.prepare(
         `UPDATE tasks SET status=COALESCE(?, status), title=COALESCE(?, title), assignee=COALESCE(?, assignee),
-           feature=COALESCE(?, feature), done_means=COALESCE(?, done_means), priority=COALESCE(?, priority),
+           feature=COALESCE(?, feature), done_means=COALESCE(?, done_means),
+           priority=CASE WHEN ? = 1 THEN ? ELSE priority END,
            acceptance=COALESCE(?, acceptance), context=COALESCE(?, context),
            description=COALESCE(?, description), blockers=COALESCE(?, blockers), doc_id=COALESCE(?, doc_id), updated_at=? WHERE id=?`,
       ).run(
@@ -752,6 +753,7 @@ state: building
         assignee ?? null,
         feature ?? null,
         doneMeans ?? null,
+        priority !== undefined ? 1 : 0,
         priority ?? null,
         acceptance ?? null,
         context ?? null,
