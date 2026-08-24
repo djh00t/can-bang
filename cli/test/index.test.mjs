@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-const { daemonServicePath, formatActivity, formatAgentFreshness } = await import('../dist/index.js')
+const { daemonServicePath, formatActivity, formatAgentFreshness, nextActivityCursor } =
+  await import('../dist/index.js')
 
 test('activity formatting includes ISO timestamps, actors, and payloads', () => {
   const output = formatActivity([
@@ -16,6 +17,12 @@ test('activity JSON mode returns the event array', () => {
   const event = { seq: 1, type: 'doc.edited', ts: 5, actor: 'tester', payload: {} }
 
   assert.deepEqual(JSON.parse(formatActivity([event], true)), [event])
+})
+
+test('activity pagination advances only through capped forward pages', () => {
+  assert.equal(nextActivityCursor(0, { capped: true, latest: 200 }), 200)
+  assert.equal(nextActivityCursor(200, { capped: true, latest: 200 }), null)
+  assert.equal(nextActivityCursor(200, { capped: false, latest: 400 }), null)
 })
 
 test('chief formatting flags stale agents and preserves freshness context', () => {

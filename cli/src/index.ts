@@ -44,6 +44,15 @@ export function formatActivity(events: readonly ActivityEvent[], json = false): 
     .join('\n')}\n`
 }
 
+export function nextActivityCursor(
+  since: number,
+  page: { capped?: unknown; latest?: unknown },
+): number | null {
+  if (page.capped !== true) return null
+  const latest = Number(page.latest)
+  return Number.isSafeInteger(latest) && latest > since ? latest : null
+}
+
 export function formatAgentFreshness(agents: readonly AgentSnapshot[]): string {
   if (!agents.length) return 'No registered agents.\n'
   return `${agents
@@ -493,9 +502,17 @@ Environment: MDE_URL, MDE_TOKEN, MDE_AUTHOR
   if (verb === 'activity') {
     const doc = pos(1)
     if (!doc) fail({ status: 400, json: { error: 'doc required' } })
-    const r = await req('GET', `/api/docs/${parseDoc(doc)}/events?since=0`)
-    if (r.status !== 200) fail(r)
-    const events = (r.json.events ?? []) as ActivityEvent[]
+    const id = parseDoc(doc)
+    const events: ActivityEvent[] = []
+    let since = 0
+    for (;;) {
+      const r = await req('GET', `/api/docs/${id}/events?since=${since}`)
+      if (r.status !== 200) fail(r)
+      events.push(...((r.json.events ?? []) as ActivityEvent[]))
+      const next = nextActivityCursor(since, r.json)
+      if (next === null) break
+      since = next
+    }
     process.stdout.write(formatActivity(events, has('--json')))
     return
   }
