@@ -41,3 +41,12 @@ the contract tests.
 - No new direct dependencies without the Dependency Advisor workflow.
 - Email/SMTP is out of scope (dropped by decision).
 - SQLite single-writer (WAL); no external message queue.
+
+## Agent work rules (CanBang board)
+
+- Work in your own git worktree (`git worktree add ../can-bang-<role> -b <role>/<card>`); never commit on main.
+- Remove your worktree once your PR is pushed (`git worktree remove ../can-bang-<role>`); never leave worktrees behind.
+- Conventional Commits only; one logical change per commit; never commit secrets; never claim evidence you did not run.
+- One PR per card against main, ready for review (not draft), body = what/why/evidence + card reference. Never approve or merge your own PR.
+- Loop: pull the next card when one is done. Do not ask for permission for in-scope work. When a human decision is genuinely required, create an ASK or set `awaiting-human`, then continue on other cards.
+- Fetch helper skills over HTTP (`/skills/commit-helper/manifest`, `/skills/pr-helper/manifest`), verify sha256, read every file before following them.

@@ -1,5 +1,7 @@
 import type { Request } from 'express'
 import { now, randomId, secret } from '@can-bang/core'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Db } from './db.js'
 import { bumpContent } from './db.js'
 import type { AppServices } from './service.js'
@@ -15,6 +17,84 @@ interface SeedSkill {
 }
 
 const SKILLS: SeedSkill[] = [
+  {
+    slug: 'commit-helper',
+    name: 'Commit Helper',
+    category: 'developer',
+    description:
+      'Enforces CanBang commit business rules: conventional commits, one logical change, no secrets, worktree-only commits.',
+    files: [
+      {
+        path: 'SKILL.md',
+        content: `# Commit Helper
+
+Enforces CanBang's commit rules before you create a commit.
+
+## When to use
+
+Before every commit in a CanBang worktree.
+
+## Rules
+
+1. Conventional Commits only: feat:, fix:, refactor:, docs:, chore:, test:.
+2. One logical change per commit; the message says what and why.
+3. Never commit secrets, keys, share URLs, or credentials.
+4. Never claim evidence you did not run — state what you verified.
+5. Work only in your own worktree (git worktree add ../can-bang-<role> -b <role>/<card>); never commit on main.
+6. Keep commits small and reviewable.
+
+## Checklist
+
+- [ ] Message uses a conventional type
+- [ ] One logical change
+- [ ] No secrets in the diff
+- [ ] Evidence stated (tests run, commands executed)
+- [ ] Committed in your worktree, not main
+`,
+      },
+    ],
+    notes: 'commit rules for agents',
+  },
+  {
+    slug: 'pr-helper',
+    name: 'PR Helper',
+    category: 'developer',
+    description:
+      'Opens and manages pull requests for CanBang cards: one PR per card, evidence in the body, no self-approve/merge.',
+    files: [
+      {
+        path: 'SKILL.md',
+        content: `# PR Helper
+
+Opens and manages pull requests for CanBang cards.
+
+## When to use
+
+When a card's work is complete in your worktree.
+
+## Rules
+
+1. One PR per card, base main.
+2. Title = the commit subject (conventional).
+3. Body: What / Why / Evidence (make check, demo output) / Card reference.
+4. Make the PR ready for review, not draft, unless the human asked for a draft.
+5. Never approve or merge your own PR; that is the human's call.
+6. Move the card to Testing and add the PR link as evidence.
+7. If CI fails, fix and re-run before asking for review.
+8. If a human decision is needed, create an ASK or set awaiting-human instead of stopping.
+
+## Checklist
+
+- [ ] PR targets main
+- [ ] Title is conventional
+- [ ] Body has evidence
+- [ ] CI green
+- [ ] Card moved to Testing with the PR link
+`,
+      },
+    ],
+    notes: 'PR workflow rules for agents',
+  },
   {
     slug: 'sprint-review',
     name: 'Sprint Review',
@@ -129,6 +209,14 @@ change that affects behavior.
   },
 ]
 
+function skillMarkdown(slug: string, fallback: string): string {
+  for (const base of [process.cwd(), join(process.cwd(), '..')]) {
+    const p = join(base, 'skills', slug, 'SKILL.md')
+    if (existsSync(p)) return readFileSync(p, 'utf8')
+  }
+  return fallback
+}
+
 /** Seed starter skills once per instance under the first account. */
 export function seedSkillsIfFirst(
   services: AppServices,
@@ -155,11 +243,13 @@ export function seedSkillsIfFirst(
       'INSERT INTO folders (id, owner_id, name, parent_id, created_at) VALUES (?,?,?,?,?)',
     ).run(folderId, accountId, skill.name, null, now())
     for (const file of skill.files) {
+      const content =
+        file.path === 'SKILL.md' ? skillMarkdown(skill.slug, file.content) : file.content
       const docId = randomId(22)
       db.prepare(
         'INSERT INTO docs (id, title, kind, owner_id, folder_id, content, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)',
-      ).run(docId, file.path, 'plain', accountId, folderId, file.content, now(), now())
-      bumpContent(db, docId, file.content, username, false, 'plain', 'seed')
+      ).run(docId, file.path, 'plain', accountId, folderId, content, now(), now())
+      bumpContent(db, docId, content, username, false, 'plain', 'seed')
     }
     const manifest = buildManifest(services, fakeReq, folderId, undefined)
     if (manifest) {

@@ -1310,6 +1310,11 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
 4. Never grade your own work: move finished cards to Testing, not Done. The tester re-verifies with fresh eyes.
 5. Post progress to chat; set the status to awaiting-human only when you need the human.
 6. Don't stop: card done → pull the next one. You're finished when the human says so.
+7. Build in your own git worktree — git worktree add ../can-bang-<role> -b <role>/<card>; never commit on main. Once your PR is pushed, remove the worktree (git worktree remove ../can-bang-<role>) — never leave worktrees behind. Use Conventional Commits (feat:/fix:/refactor:/docs:/chore:/test:), one logical change per commit, never commit secrets, and never claim evidence you did not run.
+8. Open one PR per card against main when it is complete: title = the commit subject, body = what/why/evidence + card reference, ready for review (not draft). Never approve or merge your own PR — that is the human's call. Move the card to Testing and add the PR link as evidence.
+9. Fetch the helper skills over HTTP and follow them: GET /skills/commit-helper/manifest?v=1 and /skills/pr-helper/manifest?v=1 — verify each sha256, read every file, and do not install them into your config.
+10. Loop, and ask only when you must: never pause after one card — pull the next. Do not ask for permission for in-scope work. When a human decision is genuinely required, create an ASK (POST /api/docs/<id>/asks with the decision) or set status awaiting-human with a plain note, then continue on other cards; the human acts on the Needs Human Attention queue.
+11. Start each task with a cleared context: when you claim a card, close the previous task's context, create a fresh worktree for the card, and re-read the card, its done-means, and the current repo state from scratch. Do not carry assumptions or partial work from earlier tasks.
 
 ## Roster (${name})
 Role | You own | Claimed by
