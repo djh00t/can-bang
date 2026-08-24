@@ -211,6 +211,9 @@ export function orgRoutes(services: AppServices): express.Router {
         level?: string
         url?: string
         ref?: string
+        projectId?: string
+        taskId?: string
+        phaseId?: string
       }[] = []
       const awaiting = db.prepare('SELECT * FROM docs WHERE owner_id=?').all(accountId) as DocRow[]
       for (const d of awaiting) {
@@ -231,6 +234,28 @@ export function orgRoutes(services: AppServices): express.Router {
         )
         .all(accountId) as (import('./asks.js').AskRow & { title: string })[]
       for (const a of asks) {
+        let projectId: string | undefined
+        let taskId: string | undefined
+        let phaseId: string | undefined
+        const project = db.prepare('SELECT id FROM projects WHERE doc_id=?').get(a.doc_id) as
+          { id: string } | undefined
+        if (project) {
+          projectId = project.id
+          const m =
+            /(?:^|\s)Task ([A-Za-z0-9_-]{8,})/.exec(a.text) ??
+            /(?:^|\s)task\s+([A-Za-z0-9_-]{8,})/i.exec(a.text)
+          if (m) {
+            const task = db
+              .prepare(
+                'SELECT id, phase_id FROM tasks WHERE id=? AND phase_id IN (SELECT id FROM phases WHERE project_id=?)',
+              )
+              .get(m[1]!, projectId) as { id: string; phase_id: string } | undefined
+            if (task) {
+              taskId = task.id
+              phaseId = task.phase_id
+            }
+          }
+        }
         items.push({
           docId: a.doc_id,
           title: a.title,
@@ -238,6 +263,9 @@ export function orgRoutes(services: AppServices): express.Router {
           message: a.text,
           ts: a.created_at,
           ref: a.id,
+          ...(projectId ? { projectId } : {}),
+          ...(taskId ? { taskId } : {}),
+          ...(phaseId ? { phaseId } : {}),
         })
       }
       const logs = db

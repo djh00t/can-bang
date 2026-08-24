@@ -216,6 +216,9 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     ts: number
     url?: string
     ref?: string
+    projectId?: string
+    taskId?: string
+    phaseId?: string
   }[] = []
   let taskId: string | null = null
   let taskDetail: Awaited<ReturnType<Api['taskDetail']>> | null = null
@@ -570,7 +573,19 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     message: string
     url?: string
     ref?: string
+    projectId?: string
+    taskId?: string
+    phaseId?: string
   }) => {
+    const openHref =
+      item.type === 'pr'
+        ? null
+        : item.projectId && item.taskId && item.phaseId
+          ? `/p/${item.projectId}/phase/${item.phaseId}/task/${item.taskId}`
+          : item.projectId
+            ? `/p/${item.projectId}`
+            : `/d/${item.docId}`
+    const openLabel = item.projectId && item.taskId ? 'Open task' : 'Open doc'
     const overlay = document.createElement('div')
     overlay.className = 'ws-modal-overlay'
     overlay.innerHTML = `
@@ -580,7 +595,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
           <div class="muted small"><span class="tag">${escapeHtml(item.type)}</span> · ${escapeHtml(item.message)}</div>
           <div class="ws-modal-actions">
             ${item.url ? `<button type="button" class="btn primary" id="att-open">Open ↗</button>` : ''}
-            ${item.type !== 'pr' ? `<a class="btn" href="/d/${escapeHtml(item.docId)}">Open doc</a>` : ''}
+            ${item.type !== 'pr' && openHref ? `<a class="btn" href="${escapeHtml(openHref)}">${openLabel}</a>` : ''}
             <button type="button" class="btn" id="att-dismiss">Dismiss</button>
             <button type="button" class="btn" data-close>Close</button>
           </div>

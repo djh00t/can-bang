@@ -317,6 +317,9 @@ export class Api {
       ts: number
       url?: string
       ref?: string
+      projectId?: string
+      taskId?: string
+      phaseId?: string
     }[]
   }> {
     const res = await this.request('/api/inbox')

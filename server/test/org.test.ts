@@ -248,4 +248,23 @@ describe('accounts and org', () => {
       .send({ docId: id, type: 'status' })
     expect(denied.status).toBe(404)
   })
+
+  it('links asks to the task they reference for deep-linking', async () => {
+    const { agent } = await account(ctx.app, 'ask-link')
+    const pid = (await agent.post('/api/projects').send({ name: 'AskLink' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P' })).body.phase
+      .id as string
+    const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({ title: 'Fix the thing' })
+    const taskId = task.body.task.id as string
+    const overview = await agent.get(`/api/projects/${pid}`)
+    await agent
+      .post(`/api/docs/${overview.body.project.docId}/asks`)
+      .send({ text: `Task ${taskId} needs a done-means before implementation` })
+    const inbox = await agent.get('/api/inbox')
+    const item = inbox.body.items.find((i: { type: string }) => i.type === 'ask')
+    expect(item.taskId).toBe(taskId)
+    expect(item.projectId).toBe(pid)
+    expect(item.phaseId).toBe(phaseId)
+  })
 })
