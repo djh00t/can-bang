@@ -19,6 +19,9 @@ interface ActionCtx {
   role: string
 }
 
+type Cursor = { start: number; end: number }
+type RemoteCursor = { name: string; cursor: Cursor }
+
 export async function mountEditor(
   root: HTMLElement,
   docId: string,
@@ -33,8 +36,7 @@ export async function mountEditor(
   let unclaimed = false
   let title = ''
   let me = await api.me()
-  type Cursor = { start: number; end: number }
-  const remoteCursors = new Map<string, Cursor>()
+  const remoteCursors = new Map<string, RemoteCursor>()
   let socket: WebSocket | null = null
   const storedAuthor = localStorage.getItem('wb.author') ?? ''
   const author =
@@ -63,12 +65,7 @@ export async function mountEditor(
   const renderRemoteCursors = () => {
     const target = document.getElementById('remote-cursors')
     if (!target) return
-    target.innerHTML = [...remoteCursors.entries()]
-      .map(
-        ([name, cursor]) =>
-          `<span class="wb-cursor-chip"><span class="wb-cursor-mark" aria-hidden="true"></span>@${escapeHtml(name)} at ${cursor.start}</span>`,
-      )
-      .join('')
+    target.innerHTML = renderRemoteCursorChips(remoteCursors)
   }
 
   const reload = async () => {
@@ -697,6 +694,7 @@ export async function mountEditor(
     liveSocket.onmessage = (ev) => {
       const msg = JSON.parse(ev.data as string) as {
         type?: string
+        clientId?: string
         name?: string
         names?: string[]
         cursor?: Cursor | null
@@ -705,7 +703,7 @@ export async function mountEditor(
       const presence = document.getElementById('presence')
       const dot = document.getElementById('live-dot')
       if (dot) dot.classList.add('on')
-      if (msg.type === 'cursor' && msg.name) {
+      if (msg.type === 'cursor' && msg.clientId) {
         const cursor = msg.cursor
         if (
           cursor &&
@@ -714,9 +712,12 @@ export async function mountEditor(
           cursor.start >= 0 &&
           cursor.end >= 0
         ) {
-          remoteCursors.set(msg.name, { start: cursor.start, end: cursor.end })
+          remoteCursors.set(msg.clientId, {
+            name: msg.name ?? 'Guest',
+            cursor: { start: cursor.start, end: cursor.end },
+          })
         } else {
-          remoteCursors.delete(msg.name)
+          remoteCursors.delete(msg.clientId)
         }
         renderRemoteCursors()
       }
@@ -767,6 +768,15 @@ export function renderEditorActions(
     ${showClaim ? '<button class="btn" id="claim-btn">Claim this doc</button>' : ''}
     ${currentRole === 'edit' || currentRole === 'owner' ? '<button class="btn" id="share-btn">Share</button>' : ''}
     <button class="btn" id="edit-btn">${isEditing ? 'Preview' : 'Edit'}</button>`
+}
+
+export function renderRemoteCursorChips(cursors: ReadonlyMap<string, RemoteCursor>): string {
+  return [...cursors.values()]
+    .map(
+      ({ name, cursor }) =>
+        `<span class="wb-cursor-chip"><span class="wb-cursor-mark" aria-hidden="true"></span>@${escapeHtml(name)} at ${cursor.start}</span>`,
+    )
+    .join('')
 }
 
 function renderInlineSafe(s: string): string {
