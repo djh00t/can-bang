@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Can Bang — Reference</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="wb-shell">
+      <header class="wb-topbar">
+        <div class="wb-brand">Can Bang <span class="wb-local">Local</span></div>
+        <div class="wb-top-actions">
+          <a class="btn-link" href="/">Dashboard</a>
+        </div>
+      </header>
+      <main class="wb-doc" style="max-width: 860px; margin: 20px auto">
+        <h1 id="page-title">Reference</h1>
+        <div id="doc">loading…</div>
+        <p class="muted" style="margin-top: 24px">
+          This page is a rendered view for humans. Agents should fetch the raw markdown with
+          <code>curl</code> or an HTTP client — the same URL serves it untouched.
+        </p>
+      </main>
+    </div>
+    <script id="payload" type="application/json">
+      __PAYLOAD__
+    </script>
+    <script type="module" src="/dist/render-doc.js"></script>
+  </body>
+</html>

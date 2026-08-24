@@ -1,0 +1,22 @@
+{
+  "name": "can-bang",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-hosted Docker emulation of workbench.md — collaborative markdown for humans and agents",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "build": "pnpm -r build",
+    "format:check": "prettier --check \"**/*.{ts,tsx,json,md,css,html}\"",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.1",
+    "prettier": "3.9.6",
+    "typescript": "7.0.2",
+    "tsx": "4.23.10"
+  }
+}

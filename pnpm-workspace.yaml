@@ -1,0 +1,13 @@
+packages:
+  - core
+  - server
+  - web
+  - mcp
+  - cli
+
+onlyBuiltDependencies:
+  - better-sqlite3
+  - esbuild
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true

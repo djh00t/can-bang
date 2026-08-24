@@ -1,0 +1,20 @@
+name: can-bang
+
+services:
+  can-bang:
+    build: .
+    image: can-bang:latest
+    container_name: can-bang
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      PUBLIC_URL: "${PUBLIC_URL:-http://localhost:8080}"
+      DATA_DIR: /data
+    volumes:
+      - workbench-data:/data
+    restart: unless-stopped
+
+volumes:
+  workbench-data:
+    name: can-bang-data
