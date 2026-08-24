@@ -43,9 +43,13 @@ function boardFence(content: string): Fence | undefined {
 }
 
 function cardBlock(cardLine: string, fields: Record<string, string>): string {
-  return `${cardLine}\n${Object.entries(fields)
-    .map(([k, v]) => `  ${k}: ${v}`)
-    .join('\n')}`
+  const out = [cardLine]
+  for (const [k, v] of Object.entries(fields)) {
+    const parts = String(v).split('\n')
+    out.push(`  ${k}: ${parts[0]!}`)
+    for (const part of parts.slice(1)) out.push(`  ${part}`)
+  }
+  return out.join('\n')
 }
 
 function insertBlockAfterHeader(
@@ -143,11 +147,18 @@ export function updateCard(db: Db, docId: string, taskId: string, patch: CardPat
   while (cardIdx > fence.start && !/^-\s+\[[ >xX]\]/.test(lines[cardIdx]!)) cardIdx--
   if (cardIdx <= fence.start || !/^-\s+\[[ >xX]\]/.test(lines[cardIdx]!)) return
   let end = taskIdx
-  while (end + 1 < lines.length && /^\s+[A-Za-z0-9 _-]+:/.test(lines[end + 1]!)) end++
+  while (end + 1 < lines.length && /^\s+/.test(lines[end + 1]!)) end++
   const fields: Record<string, string> = {}
+  let lastKey: string | null = null
   for (let i = cardIdx + 1; i <= end; i++) {
-    const m = /^\s+([A-Za-z0-9 _-]+?):\s*(.*)$/.exec(lines[i]!)
-    if (m) fields[m[1]!.trim()] = m[2]!.trim()
+    const m = /^\s+([A-Za-z0-9_-]+):\s*(.*)$/.exec(lines[i]!)
+    if (m) {
+      const key = m[1]!.trim()
+      fields[key] = m[2]!.trim()
+      lastKey = key
+    } else if (lastKey && fields[lastKey]) {
+      fields[lastKey] = `${fields[lastKey]}\n${lines[i]!.trim()}`
+    }
   }
   let col = 'Todo'
   for (let i = cardIdx - 1; i > fence.start; i--) {

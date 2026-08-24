@@ -394,4 +394,57 @@ describe('workspace hierarchy', () => {
     const refreshed = after.body.tasks.find((t: { id: string }) => t.id === taskId)
     expect(refreshed.context).toContain('Claimed after the previous card context is closed')
   })
+
+  it('mirrors multiline spec fields through the board fence without truncation', async () => {
+    const { agent } = await account(ctx.app, 'multiline-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'Multiline' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const acceptance =
+      'Given the API key is set\nthe sync posts exactly one PR per card\nand never self-merges'
+    const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({
+      title: 'Multiline spec',
+      acceptance,
+      context: 'Claimed after the previous card context is closed',
+    })
+    expect(task.status).toBe(201)
+    const taskId = task.body.task.id as string
+
+    // The fence stores continuation lines under the same field.
+    const overview = await agent.get(`/api/projects/${pid}`)
+    const docId = overview.body.project.docId as string
+    const doc0 = await agent.get(`/api/docs/${docId}/content`)
+    expect(doc0.text).toContain(
+      '  acceptance: Given the API key is set\n  the sync posts exactly one PR per card\n  and never self-merges',
+    )
+
+    const detail = await agent.get(`/api/tasks/${taskId}`)
+    expect(detail.body.task.acceptance).toBe(acceptance)
+
+    // A reindex (project fetch) must not truncate the multiline value.
+    const overview2 = await agent.get(`/api/projects/${pid}`)
+    const fromList = overview2.body.tasks.find((t: { id: string }) => t.id === taskId)
+    expect(fromList.acceptance).toBe(acceptance)
+
+    // An agent editing the fence with continuation lines is absorbed back intact.
+    let content = (await agent.get(`/api/docs/${docId}/content`)).text
+    content = content.replace(
+      '  and never self-merges\n',
+      '  and never self-merges\n  or merges someone else\u2019s PR\n',
+    )
+    const version = (await agent.get(`/api/docs/${docId}/content`)).headers[
+      'x-doc-version'
+    ] as string
+    const put = await agent
+      .put(`/api/docs/${docId}/content`)
+      .set('if-match', version)
+      .send({ content })
+    expect(put.status).toBe(200)
+    const after = await agent.get(`/api/projects/${pid}`)
+    const refreshed = after.body.tasks.find((t: { id: string }) => t.id === taskId)
+    expect(refreshed.acceptance).toBe(
+      'Given the API key is set\nthe sync posts exactly one PR per card\nand never self-merges\nor merges someone else’s PR',
+    )
+  })
 })
