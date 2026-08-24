@@ -160,12 +160,15 @@ export function renderAgentPromptModal(link: string, text: string, kickoff: stri
   return `
     <p class="muted small">Give each agent the same kickoff so they can join this project with the shared briefing.</p>
     <div class="ws-modal-field"><span>One-line kickoff</span>
-      <textarea readonly rows="2">${escapeHtml(kickoff)}</textarea></div>
+      <textarea readonly rows="2" id="agent-kickoff">${escapeHtml(kickoff)}</textarea></div>
     <div class="ws-modal-field"><span>Markdown URL for agents</span>
       <input readonly value="${escapeHtml(link)}.md" /></div>
     <div class="ws-modal-field"><span>Full briefing</span>
       <textarea readonly rows="9" id="agent-prompt">${escapeHtml(text)}</textarea></div>
-    <div class="ws-modal-actions"><button type="button" class="btn sm" id="copy-prompt">Copy briefing</button></div>`
+    <div class="ws-modal-actions">
+      <button type="button" class="btn sm" id="copy-agent-kickoff">Copy kickoff</button>
+      <button type="button" class="btn sm" id="copy-agent-prompt">Copy briefing</button>
+    </div>`
 }
 
 function openInfoModal(title: string, html: string): void {
@@ -184,10 +187,11 @@ function openInfoModal(title: string, html: string): void {
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) overlay.remove()
   })
-  const copyBtn = overlay.querySelector('#copy-prompt')
-  if (copyBtn) {
+  const wireCopy = (buttonSelector: string, fieldSelector: string) => {
+    const copyBtn = overlay.querySelector(buttonSelector)
+    if (!copyBtn) return
     copyBtn.addEventListener('click', async () => {
-      const ta = overlay.querySelector('#agent-prompt') as HTMLTextAreaElement | null
+      const ta = overlay.querySelector(fieldSelector) as HTMLTextAreaElement | null
       if (!ta) return
       try {
         await navigator.clipboard.writeText(ta.value)
@@ -198,6 +202,8 @@ function openInfoModal(title: string, html: string): void {
       copyBtn.textContent = 'Copied ✓'
     })
   }
+  wireCopy('#copy-agent-kickoff', '#agent-kickoff')
+  wireCopy('#copy-agent-prompt', '#agent-prompt')
 }
 
 export async function mountWorkspace(root: HTMLElement): Promise<void> {
@@ -1050,12 +1056,6 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       .getElementById('create-project-hq')
       ?.addEventListener('click', () => void createProjectHq())
     document
-      .getElementById('copy-agent-prompt')
-      ?.addEventListener('click', () => void copyAgentPrompt())
-    document
-      .getElementById('copy-agent-kickoff')
-      ?.addEventListener('click', () => void copyAgentKickoff())
-    document
       .getElementById('add-agent-briefing')
       ?.addEventListener('click', () => void addAgentBriefing())
     document.getElementById('back-to-project')?.addEventListener('click', () => {
@@ -1352,28 +1352,6 @@ ${data!.project.description ?? 'Ship the current phase, then the next.'}`
     agentPrompt = { link: s.share.url, text: buildAgentPrompt(s.share.url) }
     await loadProject()
     render()
-  }
-
-  const copyAgentPrompt = async () => {
-    const ta = document.getElementById('agent-prompt') as HTMLTextAreaElement | null
-    if (!ta) return
-    try {
-      await navigator.clipboard.writeText(ta.value)
-    } catch {
-      ta.select()
-      document.execCommand('copy')
-    }
-  }
-
-  const copyAgentKickoff = async () => {
-    const ta = document.getElementById('agent-kickoff') as HTMLTextAreaElement | null
-    if (!ta) return
-    try {
-      await navigator.clipboard.writeText(ta.value)
-    } catch {
-      ta.select()
-      document.execCommand('copy')
-    }
   }
 
   const addAgentBriefing = async () => {
