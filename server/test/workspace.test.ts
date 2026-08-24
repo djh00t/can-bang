@@ -119,6 +119,28 @@ describe('workspace hierarchy', () => {
     expect((await other.get(`/api/projects/${pid}/burndown`)).status).toBe(404)
   })
 
+  it('counts a task again after it is reopened', async () => {
+    const { agent } = await account(ctx.app, 'owner-project-burndown-reopen')
+    const pid = (await agent.post('/api/projects').send({ name: 'Reopen burndown' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'MVP' })).body
+      .phase.id as string
+    const taskId = (
+      await agent.post(`/api/phases/${phaseId}/tasks`).send({ title: 'Reopen me', status: 'todo' })
+    ).body.task.id as string
+
+    expect((await agent.patch(`/api/tasks/${taskId}`).send({ status: 'done' })).status).toBe(200)
+    expect((await agent.patch(`/api/tasks/${taskId}`).send({ status: 'doing' })).status).toBe(200)
+
+    const burndown = await agent.get(`/api/projects/${pid}/burndown?days=30`)
+    expect(burndown.status).toBe(200)
+    expect(burndown.body.total).toBe(1)
+    expect(burndown.body.current).toBe(1)
+    expect(burndown.body.points.some((point: { remaining: number }) => point.remaining === 1)).toBe(
+      true,
+    )
+  })
+
   it('scopes workspace data to the owning account', async () => {
     const { agent: owner } = await account(ctx.app, 'ws-owner')
     const { agent: other } = await account(ctx.app, 'ws-other')

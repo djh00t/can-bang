@@ -122,24 +122,24 @@ function calculateBurndown(
   const firstDay = Math.floor(first / DAY) * DAY
   const lastDay = Math.floor(Date.now() / DAY) * DAY
   const start = Math.max(firstDay, lastDay - (days - 1) * DAY)
-  const firstEvent = new Map<string, BurndownEvent>()
-  const doneAt = new Map<string, number>()
+  const eventsByTask = new Map<string, BurndownEvent[]>()
   for (const event of events) {
-    if (!firstEvent.has(event.task_id)) firstEvent.set(event.task_id, event)
-    if (event.status === 'done' && !doneAt.has(event.task_id)) doneAt.set(event.task_id, event.ts)
-  }
-  const created = new Map<string, number>()
-  for (const task of tasks) {
-    const firstEv = firstEvent.get(task.id)
-    if (!firstEv) continue
-    if (firstEv.status !== 'done') created.set(task.id, firstEv.ts)
+    const taskEvents = eventsByTask.get(event.task_id)
+    if (taskEvents) taskEvents.push(event)
+    else eventsByTask.set(event.task_id, [event])
   }
   const points: { date: string; remaining: number }[] = []
   for (let day = start; day <= lastDay; day += DAY) {
     let remaining = 0
-    for (const [taskId, createdTs] of created) {
-      if (createdTs <= day + DAY && (!doneAt.has(taskId) || doneAt.get(taskId)! > day + DAY))
-        remaining++
+    for (const task of tasks) {
+      const taskEvents = eventsByTask.get(task.id)
+      if (!taskEvents?.length) continue
+      let active = false
+      for (const event of taskEvents) {
+        if (event.ts > day + DAY) break
+        active = event.status !== 'done'
+      }
+      if (active) remaining++
     }
     points.push({ date: new Date(day).toISOString().slice(0, 10), remaining })
   }
