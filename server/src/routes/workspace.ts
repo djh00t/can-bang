@@ -161,10 +161,55 @@ export function workspaceRoutes(services: AppServices): express.Router {
   const r = express.Router()
   const { db } = services
 
+  const projectIdForRequest = (req: Request): string | null => {
+    if (req.path.startsWith('/api/projects/') && req.params.id) return req.params.id
+    if (req.path.startsWith('/api/phases/') && req.params.id) {
+      return (
+        (
+          db.prepare('SELECT project_id FROM phases WHERE id=?').get(req.params.id) as
+            { project_id: string } | undefined
+        )?.project_id ?? null
+      )
+    }
+    if (req.path.startsWith('/api/releases/') && req.params.id) {
+      return (
+        (
+          db
+            .prepare(
+              'SELECT ph.project_id FROM releases rl JOIN phases ph ON ph.id=rl.phase_id WHERE rl.id=?',
+            )
+            .get(req.params.id) as { project_id: string } | undefined
+        )?.project_id ?? null
+      )
+    }
+    if (req.path.startsWith('/api/tasks/') && req.params.id) {
+      return (
+        (
+          db
+            .prepare(
+              'SELECT ph.project_id FROM tasks t JOIN phases ph ON ph.id=t.phase_id WHERE t.id=?',
+            )
+            .get(req.params.id) as { project_id: string } | undefined
+        )?.project_id ?? null
+      )
+    }
+    return null
+  }
+
   const accountIdOf = (req: Request): string => {
     const access = resolveAccess(db, req, '')
     if (!access.identity.accountId)
       throw new ApiError(401, 'account required', 'Sign in or pass an account token.')
+    if (access.identity.projectId) {
+      const projectId = projectIdForRequest(req)
+      if (!projectId)
+        throw new ApiError(
+          403,
+          'project key is scoped to one project',
+          'Use this key with a project resource, or authenticate with an account token.',
+        )
+      if (projectId !== access.identity.projectId) throw notFound('project not found')
+    }
     return access.identity.accountId
   }
 

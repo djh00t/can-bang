@@ -8,6 +8,7 @@ import { now } from '@can-bang/core'
 export interface Identity {
   kind: 'token' | 'session' | 'guest' | 'none'
   accountId?: string
+  projectId?: string
   name: string
   guest: boolean
   authorProvided?: boolean
@@ -19,9 +20,16 @@ export interface DocAccess {
   keyRole?: Role
 }
 
+type TokenAccount = {
+  id: string
+  username: string
+  agent_name: string | null
+  project_id?: string
+}
+
 export function bearerToken(req: Request): string | undefined {
   const auth = req.headers.authorization
-  if (auth && /^Bearer\s+mgn_[A-Za-z0-9_-]+$/i.test(auth.trim())) {
+  if (auth && /^Bearer\s+(?:mgn|pbk)_[A-Za-z0-9_-]+$/i.test(auth.trim())) {
     return auth.trim().slice(7)
   }
   return undefined
@@ -44,16 +52,22 @@ export function sessionCookie(req: Request): string | undefined {
   return undefined
 }
 
-export function accountFromToken(
-  db: Db,
-  token: string,
-): { id: string; username: string; agent_name: string | null } | null {
+export function accountFromToken(db: Db, token: string): TokenAccount | null {
   const row = db
     .prepare(
       `SELECT a.id, a.username, a.agent_name FROM tokens t JOIN accounts a ON a.id = t.account_id WHERE t.token_hash = ?`,
     )
     .get(hashSecret(token)) as
     { id: string; username: string; agent_name: string | null } | undefined
+  return row ?? null
+}
+
+export function accountFromProjectKey(db: Db, key: string): TokenAccount | null {
+  const row = db
+    .prepare(
+      'SELECT a.id, a.username, a.agent_name, p.id AS project_id FROM project_keys pk JOIN projects p ON p.id = pk.project_id JOIN accounts a ON a.id = p.owner_id WHERE pk.key_hash = ?',
+    )
+    .get(hashSecret(key)) as TokenAccount | undefined
   return row ?? null
 }
 
@@ -111,7 +125,7 @@ export function resolveAccess(db: Db, req: Request, docId: string): DocAccess {
 
   const token = bearerToken(req)
   if (token) {
-    const account = accountFromToken(db, token)
+    const account = accountFromToken(db, token) ?? accountFromProjectKey(db, token)
     if (!account)
       throw new ApiError(
         401,
@@ -131,6 +145,7 @@ export function resolveAccess(db: Db, req: Request, docId: string): DocAccess {
         identity: {
           kind: 'token',
           accountId: account.id,
+          projectId: account.project_id,
           name: account.agent_name ?? account.username,
           guest: false,
         },
@@ -145,6 +160,7 @@ export function resolveAccess(db: Db, req: Request, docId: string): DocAccess {
         identity: {
           kind: 'token',
           accountId: account.id,
+          projectId: account.project_id,
           name: account.agent_name ?? account.username,
           guest: false,
         },

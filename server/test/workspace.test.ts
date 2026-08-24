@@ -110,6 +110,17 @@ describe('workspace hierarchy', () => {
     expect(stored[0]).toMatchObject({ project_id: pid, label: 'automation' })
     expect(stored[0].key_hash).not.toBe(first.body.key)
 
+    const keyOverview = await request(ctx.app)
+      .get('/api/projects/' + pid)
+      .set('authorization', 'Bearer ' + first.body.key)
+    expect(keyOverview.status).toBe(200)
+    expect(keyOverview.body.project.id).toBe(pid)
+    const otherPid = (await other.post('/api/projects').send({ name: 'Other project' })).body
+      .project.id as string
+    const crossProject = await request(ctx.app)
+      .get('/api/projects/' + otherPid)
+      .set('authorization', 'Bearer ' + first.body.key)
+    expect(crossProject.status).toBe(404)
     const denied = await other
       .post('/api/projects/' + pid + '/key')
       .send({ label: 'wrong-account' })
