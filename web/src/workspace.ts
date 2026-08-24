@@ -745,6 +745,14 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
               .join('') || '<span class="muted">No skills published yet.</span>'
           }
         </div>
+        <div class="panel marketplace-dashboard-card">
+          <h3>Marketplace</h3>
+          <p class="muted small">Browse reusable widgets and templates for your next project.</p>
+          <div class="ws-modal-actions">
+            <a class="btn sm" href="/marketplace/widgets">Browse widgets</a>
+            <a class="btn sm" href="/marketplace/templates">Browse templates</a>
+          </div>
+        </div>
       </div>
     </div>`
 
