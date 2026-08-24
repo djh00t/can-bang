@@ -229,6 +229,7 @@ export function reindexBoard(
   const fence = boardFence(content)
   if (fence) {
     const board = parseBoard(fence.body)
+    let insertedTaskMarkers = 0
     for (const card of board.cards) {
       const status = COLUMN_STATUS[card.column.trim().toLowerCase()] ?? 'todo'
       const taskId = card.fields.task
@@ -290,8 +291,9 @@ export function reindexBoard(
         created++
         if (!taskId) {
           const lines = content.split('\n')
-          const cardIdx = fence.start + 1 + card.line
+          const cardIdx = fence.start + 1 + card.line + insertedTaskMarkers
           lines.splice(cardIdx + 1, 0, `  task: ${id}`)
+          insertedTaskMarkers++
           content = lines.join('\n')
         }
       }
