@@ -1,8 +1,9 @@
 import express, { type Request, type Response } from 'express'
-import { ApiError, badRequest, notFound, randomId } from '@can-bang/core'
+import { ApiError, badRequest, notFound, randomId, secret } from '@can-bang/core'
 import type { AppServices } from '../service.js'
 import type { Db } from '../db.js'
-import { resolveAccess } from '../auth.js'
+import { projectKeyFromRequest, resolveAccess } from '../auth.js'
+import { hashSecret } from '../crypto.js'
 import { asyncHandler } from '../util.js'
 import { now } from '@can-bang/core'
 import { realGh, syncProjectGithub } from '../github.js'
@@ -167,6 +168,40 @@ export function workspaceRoutes(services: AppServices): express.Router {
     return access.identity.accountId
   }
 
+  const projectAccountIdOf = (req: Request, projectId: string): string => {
+    const projectKey = projectKeyFromRequest(db, req)
+    if (projectKey) {
+      if (projectKey.projectId !== projectId) throw notFound('project not found')
+      return projectKey.accountId
+    }
+    return accountIdOf(req)
+  }
+
+  const projectAccountIdForPhase = (req: Request, phaseId: string): string => {
+    const row = db.prepare('SELECT project_id FROM phases WHERE id=?').get(phaseId) as
+      { project_id: string } | undefined
+    if (!row) throw notFound('phase not found')
+    return projectAccountIdOf(req, row.project_id)
+  }
+
+  const projectAccountIdForRelease = (req: Request, releaseId: string): string => {
+    const row = db
+      .prepare(
+        'SELECT ph.project_id FROM releases r JOIN phases ph ON ph.id=r.phase_id WHERE r.id=?',
+      )
+      .get(releaseId) as { project_id: string } | undefined
+    if (!row) throw notFound('release not found')
+    return projectAccountIdOf(req, row.project_id)
+  }
+
+  const projectAccountIdForTask = (req: Request, taskId: string): string => {
+    const row = db
+      .prepare('SELECT ph.project_id FROM tasks t JOIN phases ph ON ph.id=t.phase_id WHERE t.id=?')
+      .get(taskId) as { project_id: string } | undefined
+    if (!row) throw notFound('task not found')
+    return projectAccountIdOf(req, row.project_id)
+  }
+
   const projectOf = (db: Db, accountId: string, id: string): ProjectRow => {
     const p = db.prepare('SELECT * FROM projects WHERE id=? AND owner_id=?').get(id, accountId) as
       ProjectRow | undefined
@@ -276,10 +311,24 @@ state: building
     }),
   )
 
+  r.post(
+    '/api/projects/:id/api-keys',
+    asyncHandler((req: Request, res: Response) => {
+      const accountId = accountIdOf(req)
+      const project = projectOf(db, accountId, req.params.id!)
+      const label = typeof req.body?.label === 'string' ? req.body.label.trim().slice(0, 80) : null
+      const key = `pk_${secret(28)}`
+      db.prepare(
+        'INSERT INTO project_keys (id, project_id, key_hash, label, created_at) VALUES (?,?,?,?,?)',
+      ).run(randomId(14), project.id, hashSecret(key), label, now())
+      res.status(201).json({ key, label })
+    }),
+  )
+
   r.get(
     '/api/projects/:id',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdOf(req, req.params.id!)
       const project = projectOf(db, accountId, req.params.id!)
       reindexIfStale(db, project.id)
       const phases = db
@@ -307,6 +356,13 @@ state: building
             repo: project.github_repo,
             syncEnabled: project.github_sync === 1,
           },
+          apiKeyCount: (
+            db
+              .prepare('SELECT COUNT(*) AS c FROM project_keys WHERE project_id=?')
+              .get(project.id) as {
+              c: number
+            }
+          ).c,
         },
         phases: phases.map((ph) => ({
           id: ph.id,
@@ -364,7 +420,7 @@ state: building
   r.post(
     '/api/projects/:id/phases',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdOf(req, req.params.id!)
       const project = projectOf(db, accountId, req.params.id!)
       const name = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 120) : ''
       if (!name) throw badRequest('name required')
@@ -384,7 +440,7 @@ state: building
   r.patch(
     '/api/phases/:id',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdForPhase(req, req.params.id!)
       const phase = phaseOf(db, accountId, req.params.id!)
       const name =
         typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 120) : undefined
@@ -407,7 +463,7 @@ state: building
   r.patch(
     '/api/projects/:id',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdOf(req, req.params.id!)
       const project = projectOf(db, accountId, req.params.id!)
       const name =
         typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 120) : undefined
@@ -427,7 +483,7 @@ state: building
   r.get(
     '/api/phases/:id/burndown',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdForPhase(req, req.params.id!)
       const phase = phaseOf(db, accountId, req.params.id!)
       reindexIfStale(db, phase.project_id)
       const days = Math.min(Math.max(Number(req.query.days ?? 30), 2), 90)
@@ -438,7 +494,7 @@ state: building
   r.patch(
     '/api/projects/:id/github',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdOf(req, req.params.id!)
       const project = projectOf(db, accountId, req.params.id!)
       const enabled = req.body?.enabled === false ? 0 : 1
       const repo =
@@ -472,7 +528,7 @@ state: building
   r.post(
     '/api/projects/:id/sync-github',
     asyncHandler(async (req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdOf(req, req.params.id!)
       const project = projectOf(db, accountId, req.params.id!)
       if (!project.github_repo || !project.github_token) {
         throw badRequest('github not configured', 'Enable GitHub sync on the project first.')
@@ -499,7 +555,7 @@ state: building
   r.post(
     '/api/phases/:id/releases',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdForPhase(req, req.params.id!)
       const phase = phaseOf(db, accountId, req.params.id!)
       const name = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 120) : ''
       if (!name) throw badRequest('name required')
@@ -523,7 +579,7 @@ state: building
   r.patch(
     '/api/releases/:id',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdForRelease(req, req.params.id!)
       const release = releaseOf(db, accountId, req.params.id!)
       const name =
         typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 120) : undefined
@@ -547,7 +603,7 @@ state: building
   r.get(
     '/api/releases/:id',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdForRelease(req, req.params.id!)
       const release = releaseOf(db, accountId, req.params.id!)
       const phase = db.prepare('SELECT * FROM phases WHERE id=?').get(release.phase_id) as PhaseRow
       reindexIfStale(db, phase.project_id)
@@ -590,7 +646,7 @@ state: building
   r.post(
     '/api/phases/:id/tasks',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdForPhase(req, req.params.id!)
       const phase = phaseOf(db, accountId, req.params.id!)
       const title = typeof req.body?.title === 'string' ? req.body.title.trim().slice(0, 200) : ''
       if (!title) throw badRequest('title required')
@@ -668,7 +724,7 @@ state: building
   r.patch(
     '/api/tasks/:id',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdForTask(req, req.params.id!)
       const task = db
         .prepare(
           `SELECT t.* FROM tasks t JOIN phases ph ON ph.id = t.phase_id JOIN projects pr ON pr.id = ph.project_id
@@ -791,7 +847,7 @@ state: building
   r.get(
     '/api/tasks/:id',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdForTask(req, req.params.id!)
       const task = db
         .prepare(
           `SELECT t.* FROM tasks t JOIN phases ph ON ph.id = t.phase_id JOIN projects pr ON pr.id = ph.project_id
@@ -830,7 +886,7 @@ state: building
   r.get(
     '/api/projects/:id/matrix',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdOf(req, req.params.id!)
       const project = projectOf(db, accountId, req.params.id!)
       reindexIfStale(db, project.id)
       const phases = db

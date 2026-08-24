@@ -71,6 +71,42 @@ describe('workspace hierarchy', () => {
     expect(overview.body.tasks[0].status).toBe('done')
   })
 
+  it('mints project API keys with project-only access', async () => {
+    const { agent } = await account(ctx.app, 'project-key-owner')
+    const projectId = (await agent.post('/api/projects').send({ name: 'Scoped project' })).body
+      .project.id as string
+    const otherProjectId = (await agent.post('/api/projects').send({ name: 'Other project' })).body
+      .project.id as string
+    const phaseId = (await agent.post(`/api/projects/${projectId}/phases`).send({ name: 'MVP' }))
+      .body.phase.id as string
+
+    const minted = await agent.post(`/api/projects/${projectId}/api-keys`).send({ label: 'agent' })
+    expect(minted.status).toBe(201)
+    expect(minted.body.key).toMatch(/^pk_[A-Za-z0-9_-]+$/)
+    expect(minted.body.label).toBe('agent')
+    const key = minted.body.key as string
+    const auth = { authorization: `Bearer ${key}` }
+
+    const project = await request(ctx.app).get(`/api/projects/${projectId}`).set(auth)
+    expect(project.status).toBe(200)
+    expect(project.body.project.apiKeyCount).toBe(1)
+    const task = await request(ctx.app)
+      .post(`/api/phases/${phaseId}/tasks`)
+      .set(auth)
+      .send({ title: 'Agent task' })
+    expect(task.status).toBe(201)
+    const taskDetail = await request(ctx.app).get(`/api/tasks/${task.body.task.id}`).set(auth)
+    expect(taskDetail.status).toBe(200)
+    expect((await request(ctx.app).get(`/api/projects/${otherProjectId}`).set(auth)).status).toBe(
+      404,
+    )
+    expect((await request(ctx.app).get('/api/projects').set(auth)).status).toBe(401)
+    expect((await request(ctx.app).get('/api/me').set(auth)).status).toBe(401)
+    expect(
+      (await request(ctx.app).post(`/api/projects/${projectId}/api-keys`).set(auth)).status,
+    ).toBe(401)
+  })
+
   it('aggregates the feature-status matrix across phases', async () => {
     const { agent } = await account(ctx.app, 'owner-matrix')
     const pid = (await agent.post('/api/projects').send({ name: 'Gamma' })).body.project

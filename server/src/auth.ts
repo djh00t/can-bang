@@ -27,6 +27,14 @@ export function bearerToken(req: Request): string | undefined {
   return undefined
 }
 
+export function projectBearerToken(req: Request): string | undefined {
+  const auth = req.headers.authorization
+  if (auth && /^Bearer\s+pk_[A-Za-z0-9_-]+$/i.test(auth.trim())) {
+    return auth.trim().slice(7)
+  }
+  return undefined
+}
+
 export function shareKey(req: Request): string | undefined {
   const q = req.query.key
   const h = req.headers['x-share-key']
@@ -55,6 +63,28 @@ export function accountFromToken(
     .get(hashSecret(token)) as
     { id: string; username: string; agent_name: string | null } | undefined
   return row ?? null
+}
+
+export function projectKeyFromRequest(
+  db: Db,
+  req: Request,
+): { projectId: string; accountId: string } | null {
+  const token = projectBearerToken(req)
+  if (!token) return null
+  const row = db
+    .prepare(
+      `SELECT p.id AS project_id, p.owner_id
+       FROM project_keys k JOIN projects p ON p.id=k.project_id
+       WHERE k.key_hash=?`,
+    )
+    .get(hashSecret(token)) as { project_id: string; owner_id: string } | undefined
+  if (!row)
+    throw new ApiError(
+      401,
+      'invalid project key',
+      'Check the Authorization header or mint a new project key in project settings.',
+    )
+  return { projectId: row.project_id, accountId: row.owner_id }
 }
 
 export function accountFromSession(

@@ -26,6 +26,7 @@ type ProjectData = {
     docId: string | null
     docTitle: string | null
     github: { enabled: boolean; repo: string | null; syncEnabled: boolean }
+    apiKeyCount: number
   }
   phases: Phase[]
   releases: {
@@ -781,6 +782,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
               }
             </div>
             ${renderGithub()}
+            ${renderProjectKeys()}
             ${renderAgents()}
             ${data!.project.docId ? `<div class="panel"><h3>Project doc</h3><a class="btn sm" href="/d/${encodeURIComponent(data!.project.docId)}">Open · ${escapeHtml(data!.project.docTitle ?? 'project doc')}</a></div>` : ''}
           </div>
@@ -879,6 +881,15 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       <div class="ws-modal-field"><span>Personal access token (repo scope)</span><input id="gh-token" type="password" placeholder="ghp_…" /></div>
       <button class="btn sm" id="enable-github">Enable sync</button>
       <div class="muted small">Tasks push to GitHub issues; issues created from CanBang tasks import back.</div></div>`
+  }
+
+  const renderProjectKeys = () => {
+    const count = data!.project.apiKeyCount
+    return `<div class="panel"><h3>Project settings</h3>
+      <div class="muted small">Mint a project-scoped API key for agents. It can read and update this project's workspace, but cannot access account routes or other projects.</div>
+      <div class="ws-modal-actions" style="margin-top:6px"><button class="btn sm" id="mint-project-key">Mint project API key</button><span class="muted small">${count} active key${count === 1 ? '' : 's'}</span></div>
+      <div class="muted small">The secret is shown once after minting. Store it as <code>Authorization: Bearer pk_...</code>.</div>
+    </div>`
   }
 
   const renderAgents = () => {
@@ -1147,6 +1158,9 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     })
     document.getElementById('enable-github')?.addEventListener('click', () => void enableGithub())
     document.getElementById('sync-github')?.addEventListener('click', () => void runGithubSync())
+    document
+      .getElementById('mint-project-key')
+      ?.addEventListener('click', () => void mintProjectKey())
     document.getElementById('onboard-agent')?.addEventListener('click', () => void onboardAgent())
     document
       .getElementById('create-project-hq')
@@ -1377,6 +1391,25 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     await api.patchGithub(projectId, { enabled: true, repo, token })
     await loadProject()
     render()
+  }
+
+  const mintProjectKey = async () => {
+    if (!projectId) return
+    const label = prompt('Optional project key label:', 'agent')
+    if (label === null) return
+    try {
+      const result = await api.createProjectKey(projectId, label.trim() || undefined)
+      await loadProject()
+      render()
+      openInfoModal(
+        'Project API key',
+        `<p>Copy this key now. It will not be shown again.</p>
+         <div class="ws-modal-field"><span>Authorization header</span><textarea readonly rows="2">Bearer ${escapeHtml(result.key)}</textarea></div>
+         <p class="muted small">This key is scoped to <b>${escapeHtml(data?.project.name ?? 'this project')}</b>. Keep it out of source control and chat logs.</p>`,
+      )
+    } catch (e) {
+      alert(`Project key mint failed: ${(e as Error).message}`)
+    }
   }
 
   const runGithubSync = async () => {

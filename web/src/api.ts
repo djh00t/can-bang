@@ -348,6 +348,17 @@ export class Api {
     return res.json()
   }
 
+  async createProjectKey(
+    projectId: string,
+    label?: string,
+  ): Promise<{ key: string; label: string | null }> {
+    const res = await this.request(`/api/projects/${projectId}/api-keys`, {
+      method: 'POST',
+      body: JSON.stringify(label ? { label } : {}),
+    })
+    return res.json()
+  }
+
   async agentName(name: string): Promise<void> {
     await this.request('/api/me/agent-name', { method: 'POST', body: JSON.stringify({ name }) })
   }
@@ -436,6 +447,7 @@ export class Api {
       docId: string | null
       docTitle: string | null
       github: { enabled: boolean; repo: string | null; syncEnabled: boolean }
+      apiKeyCount: number
     }
     phases: {
       id: string
