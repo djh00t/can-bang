@@ -181,6 +181,39 @@ export function renderProjectTreeLabel(
     <span class="ws-count">${project.done}/${project.total}</span></button>`
 }
 
+export type WorkspaceNavigationState = {
+  projectId: string | null
+  phaseId: string | null
+  view: 'overview' | 'pipeline' | 'matrix'
+  detail: 'project' | 'release'
+  releaseId: string | null
+  taskId: string | null
+}
+
+export function navigateToTreeTask(
+  state: WorkspaceNavigationState,
+  ownerProjectId: string,
+  phaseId: string,
+  taskId: string,
+): WorkspaceNavigationState {
+  return {
+    ...state,
+    projectId: ownerProjectId,
+    phaseId,
+    view: 'pipeline',
+    detail: 'project',
+    releaseId: null,
+    taskId,
+  }
+}
+
+export function shouldReloadProjectMatrix(
+  state: Pick<WorkspaceNavigationState, 'projectId' | 'view'>,
+  ownerProjectId: string,
+): boolean {
+  return state.view === 'matrix' && state.projectId !== ownerProjectId
+}
+
 function openInfoModal(title: string, html: string): void {
   const overlay = document.createElement('div')
   overlay.className = 'ws-modal-overlay'
@@ -436,10 +469,20 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   }
 
   const openTask = async (id: string, ownerProjectId = projectId) => {
-    if (ownerProjectId) projectId = ownerProjectId
+    if (!ownerProjectId) return
     taskDetail = await api.taskDetail(id)
-    taskId = id
-    phaseId = taskDetail.phase.id
+    const next = navigateToTreeTask(
+      { projectId, phaseId, view, detail, releaseId, taskId },
+      ownerProjectId,
+      taskDetail.phase.id,
+      id,
+    )
+    projectId = next.projectId
+    phaseId = next.phaseId
+    view = next.view
+    detail = next.detail
+    releaseId = next.releaseId
+    taskId = next.taskId
     await loadProject()
     expanded.add(`project:${projectId ?? ''}`)
     expanded.add(`phase:${phaseId}`)
@@ -456,11 +499,15 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   }
 
   const openRelease = async (id: string, ownerProjectId = projectId) => {
+    const reloadMatrix = ownerProjectId
+      ? shouldReloadProjectMatrix({ projectId, view }, ownerProjectId)
+      : false
     if (ownerProjectId) projectId = ownerProjectId
     if (ownerProjectId && data?.project.id !== ownerProjectId) {
       data = await loadProjectData(ownerProjectId)
       await loadChat()
     }
+    if (reloadMatrix && ownerProjectId) matrixData = await api.matrix(ownerProjectId)
     releaseId = id
     detail = 'release'
     releaseDetail = await api.releaseDetail(id)

@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { renderAgentPromptModal, renderProjectTreeLabel } from '../src/workspace.js'
+import {
+  navigateToTreeTask,
+  renderAgentPromptModal,
+  renderProjectTreeLabel,
+  shouldReloadProjectMatrix,
+} from '../src/workspace.js'
 
 test('renders the onboarding modal with escaped prompt and agent link', () => {
   const html = renderAgentPromptModal(
@@ -30,4 +35,45 @@ test('renders project names as expansion controls instead of navigation controls
   assert.match(html, /aria-controls="project-children-project-1"/)
   assert.match(html, /Project &lt;One&gt;/)
   assert.doesNotMatch(html, /data-project="project-1"/)
+})
+
+test('tree task navigation selects its owner and resets stale route state', () => {
+  assert.deepEqual(
+    navigateToTreeTask(
+      {
+        projectId: 'old-project',
+        phaseId: null,
+        view: 'matrix',
+        detail: 'release',
+        releaseId: 'old-release',
+        taskId: null,
+      },
+      'new-project',
+      'new-phase',
+      'new-task',
+    ),
+    {
+      projectId: 'new-project',
+      phaseId: 'new-phase',
+      view: 'pipeline',
+      detail: 'project',
+      releaseId: null,
+      taskId: 'new-task',
+    },
+  )
+})
+
+test('cross-project release navigation reloads matrix data only when needed', () => {
+  assert.equal(
+    shouldReloadProjectMatrix({ projectId: 'old-project', view: 'matrix' }, 'new-project'),
+    true,
+  )
+  assert.equal(
+    shouldReloadProjectMatrix({ projectId: 'same-project', view: 'matrix' }, 'same-project'),
+    false,
+  )
+  assert.equal(
+    shouldReloadProjectMatrix({ projectId: 'old-project', view: 'pipeline' }, 'new-project'),
+    false,
+  )
 })
