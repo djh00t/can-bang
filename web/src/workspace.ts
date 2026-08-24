@@ -47,6 +47,7 @@ type ProjectData = {
     description: string | null
     blockers: string | null
     docId: string | null
+    priority: string | null
   }[]
   counts: { total: number; done: number; doing: number; testing: number; todo: number }
 }
@@ -617,7 +618,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
                   (t) =>
                     `<div class="board-card ${t.status}" data-open-task="${t.id}" data-status="${t.status}">
                        <span class="card-text">${escapeHtml(t.title)}</span>
-                       <span class="card-meta">${releaseByPhase.get(t.phaseId) ? `<span class="chip release">🚀 ${escapeHtml(releaseByPhase.get(t.phaseId)!)}</span>` : ''}${t.assignee ? `<span class="chip assignee">@${escapeHtml(t.assignee)}</span>` : ''}${t.feature ? `<span class="chip tag">${escapeHtml(t.feature)}</span>` : ''}</span>
+                       <span class="card-meta">${t.priority ? `<span class="chip priority-${escapeHtml(t.priority)}">${escapeHtml(t.priority)}</span>` : ''}${releaseByPhase.get(t.phaseId) ? `<span class="chip release">🚀 ${escapeHtml(releaseByPhase.get(t.phaseId)!)}</span>` : ''}${t.assignee ? `<span class="chip assignee">@${escapeHtml(t.assignee)}</span>` : ''}${t.feature ? `<span class="chip tag">${escapeHtml(t.feature)}</span>` : ''}</span>
                      </div>`,
                 )
                 .join('')}
@@ -743,6 +744,14 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
               )
               .join('') || '<span class="muted">No skills published yet.</span>'
           }
+        </div>
+        <div class="panel marketplace-dashboard-card">
+          <h3>Marketplace</h3>
+          <p class="muted small">Browse reusable widgets and templates for your next project.</p>
+          <div class="ws-modal-actions">
+            <a class="btn sm" href="/marketplace/widgets">Browse widgets</a>
+            <a class="btn sm" href="/marketplace/templates">Browse templates</a>
+          </div>
         </div>
       </div>
     </div>`
@@ -895,6 +904,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
         <div class="row"><span>Project</span><b>${escapeHtml(t.project.name)}</b></div>
         ${t.task.assignee ? `<div class="row"><span>Assignee</span><b>@${escapeHtml(t.task.assignee)}</b></div>` : ''}
         ${t.task.feature ? `<div class="row"><span>Feature</span><b>${escapeHtml(t.task.feature)}</b></div>` : ''}
+        ${t.task.priority ? `<div class="row"><span>Priority</span><b>${escapeHtml(t.task.priority)}</b></div>` : ''}
         ${t.task.done_means ? `<div class="ws-field"><span class="muted small">done-means</span><div>${escapeHtml(t.task.done_means)}</div></div>` : ''}
         ${t.task.description ? `<div class="ws-field"><span class="muted small">description</span><div>${escapeHtml(t.task.description)}</div></div>` : ''}
         ${t.task.blockers ? `<div class="ws-field"><span class="muted small">blockers</span><div>${escapeHtml(t.task.blockers)}</div></div>` : ''}
@@ -904,6 +914,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
           <button class="btn sm" data-edit-task="title">Rename</button>
           <button class="btn sm" data-edit-task="assignee">Assignee</button>
           <button class="btn sm" data-edit-task="feature">Feature</button>
+          <button class="btn sm" data-edit-task="priority">Priority</button>
           <button class="btn sm" data-edit-task="done_means">done-means</button>
           <button class="btn sm" data-edit-task="description">Description</button>
           <button class="btn sm" data-edit-task="blockers">Blockers</button>

@@ -318,9 +318,9 @@ export function docsRoutes(services: AppServices): express.Router {
     asyncHandler((req: Request, res: Response) => {
       const doc = getDoc(db, req.params.id!)
       const access = resolveAccess(db, req, doc.id)
-      if (!access.identity.accountId || access.role !== 'owner') {
-        throw forbidden('only the owner can duplicate this document')
-      }
+      if (!access.identity.accountId)
+        throw new ApiError(401, 'account required', 'Duplicate needs a signed-in account.')
+      if (!access.role) throw forbidden('you do not have access to this document')
       const id = randomId(22)
       db.prepare(
         'INSERT INTO docs (id, title, kind, owner_id, content, created_at, updated_at) VALUES (?,?,?,?,?,?,?)',

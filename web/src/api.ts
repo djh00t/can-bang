@@ -17,8 +17,9 @@ export class Api {
     opts: RequestInit = {},
     extraHeaders: Record<string, string> = {},
   ): Promise<Response> {
-    const headers: Record<string, string> = { ...extraHeaders }
-    if (opts.body && typeof opts.body === 'string') headers['content-type'] = 'application/json'
+    const headers = new Headers(opts.headers)
+    for (const [name, value] of Object.entries(extraHeaders)) headers.set(name, value)
+    if (opts.body && typeof opts.body === 'string') headers.set('content-type', 'application/json')
     const res = await fetch(`${this.base}${path}`, { ...opts, headers })
     if (!res.ok) {
       let body: Record<string, unknown> = {}
@@ -455,6 +456,7 @@ export class Api {
       description: string | null
       blockers: string | null
       docId: string | null
+      priority: string | null
     }[]
     counts: { total: number; done: number; doing: number; testing: number; todo: number }
   }> {
@@ -537,7 +539,13 @@ export class Api {
 
   async createTask(
     phaseId: string,
-    task: { title: string; assignee?: string; feature?: string; done_means?: string },
+    task: {
+      title: string
+      assignee?: string
+      feature?: string
+      done_means?: string
+      priority?: string
+    },
   ): Promise<unknown> {
     const res = await this.request(`/api/phases/${phaseId}/tasks`, {
       method: 'POST',
@@ -555,6 +563,7 @@ export class Api {
       description?: string | null
       blockers?: string | null
       doc_id?: string | null
+      priority?: string | null
     },
   ): Promise<unknown> {
     const res = await this.request(`/api/tasks/${id}`, {
@@ -576,6 +585,7 @@ export class Api {
       blockers: string | null
       docId: string | null
       docTitle: string | null
+      priority: string | null
     }
     phase: { id: string; name: string }
     project: { id: string; name: string }

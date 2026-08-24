@@ -5,7 +5,9 @@ install:
 
 check:
 	pnpm --filter @can-bang/core build
+	pnpm --filter @can-bang/core test
 	pnpm --filter @can-bang/web build
+	pnpm --filter @can-bang/web test
 	pnpm typecheck
 	pnpm format:check
 	pnpm --filter @can-bang/server test

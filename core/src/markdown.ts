@@ -140,7 +140,7 @@ export function parseChat(body: string): ChatLine[] {
 /** Append one line to a fence body. */
 export function appendFenceLine(md: string, fence: Fence, line: string): string {
   const lines = md.split('\n')
-  const insertAt = fence.end + 1
+  const insertAt = lines[fence.end]?.trim() === '```' ? fence.end : fence.end + 1
   lines.splice(insertAt, 0, line)
   return lines.join('\n')
 }
