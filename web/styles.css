@@ -1401,6 +1401,33 @@ textarea:focus {
   max-height: 220px;
 }
 
+.ws-agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ws-agent-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.ws-agent-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.ws-agent-ident {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .ws-modal-overlay {
   position: fixed;
   inset: 0;

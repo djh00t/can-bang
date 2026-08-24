@@ -300,6 +300,22 @@ export class Api {
     return res.json()
   }
 
+  async agents(): Promise<{
+    agents: {
+      id: string
+      name: string
+      harness: string | null
+      machine: string | null
+      role: string
+      currentDoc: string | null
+      currentTask: string | null
+      freshness: 'live' | 'idle' | 'stale'
+    }[]
+  }> {
+    const res = await this.request('/api/agents')
+    return res.json()
+  }
+
   async moveDoc(id: string, folderId: string | null): Promise<unknown> {
     const res = await this.request(`/api/docs/${id}/move`, {
       method: 'POST',
