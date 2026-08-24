@@ -1,6 +1,5 @@
 import express, { type Request, type Response } from 'express'
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { randomId } from '@can-bang/core'
 import type { AppServices } from '../service.js'
 import { mintShare, resolveAccess, shareKey } from '../auth.js'
@@ -8,6 +7,7 @@ import { bumpContent, docVersion } from '../db.js'
 import { asyncHandler, clientUrl } from '../util.js'
 import { getDoc } from './docs.js'
 import { now } from '@can-bang/core'
+import { webFile } from '../web-root.js'
 
 const CLI_AGENTS = /curl|wget|httpie|python-requests|httpx|go-http-client|node|undici|node-fetch/i
 
@@ -138,7 +138,7 @@ export function pagesRoutes(services: AppServices): express.Router {
       const ua = req.headers['user-agent'] ?? ''
       if (accept.includes('text/html') && !CLI_AGENTS.test(ua)) {
         try {
-          const template = readFileSync(join(process.cwd(), 'web', 'reference.html'), 'utf8')
+          const template = readFileSync(webFile('reference.html'), 'utf8')
           const payload = JSON.stringify({ markdown, title }).replace(/</g, '\\u003c')
           res.type('html').send(template.replace('__PAYLOAD__', payload))
         } catch {
@@ -155,7 +155,7 @@ export function pagesRoutes(services: AppServices): express.Router {
 
 function sendSpa(res: Response, services: AppServices): void {
   try {
-    const html = readFileSync(join(process.cwd(), 'web', 'index.html'), 'utf8')
+    const html = readFileSync(webFile('index.html'), 'utf8')
     res.type('html').send(html)
   } catch {
     res

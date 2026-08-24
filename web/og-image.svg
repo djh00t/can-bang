@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">CanBang — Multi-Agent Canvas</title>
+  <desc id="desc">A firecracker logo beside a shared project canvas for people and agents.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="0.58" stop-color="#123a74"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.06"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+    <pattern id="grid" width="42" height="42" patternUnits="userSpaceOnUse">
+      <path d="M42 0H0V42" fill="none" stroke="#ffffff" stroke-opacity="0.07"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <circle cx="1030" cy="80" r="180" fill="#60a5fa" opacity="0.18" filter="url(#glow)"/>
+  <circle cx="165" cy="520" r="150" fill="#f59e0b" opacity="0.14" filter="url(#glow)"/>
+
+  <g transform="translate(110 125) scale(8)">
+    <rect x="8.5" y="10" width="15" height="19" rx="3.5" fill="#9f1239"/>
+    <rect x="10" y="11.5" width="12" height="16" rx="2.5" fill="#e11d48"/>
+    <rect x="10" y="11.5" width="12" height="3.5" rx="2" fill="#f59e0b"/>
+    <path d="M16 11 C18 7.5 20 6 22.5 4.5" stroke="#92400e" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+    <circle cx="22.8" cy="3.8" r="3" fill="#fde047"/>
+    <circle cx="22.8" cy="3.8" r="1.4" fill="#fffbe6"/>
+    <g stroke="#fde047" stroke-width="1.2" stroke-linecap="round">
+      <line x1="26.8" y1="3.8" x2="28" y2="3.8"/>
+      <line x1="18.8" y1="3.8" x2="17.6" y2="3.8"/>
+      <line x1="22.8" y1="7.8" x2="22.8" y2="9"/>
+      <line x1="22.8" y1="-0.2" x2="22.8" y2="-1.4"/>
+      <line x1="25.7" y1="6.7" x2="26.5" y2="7.5"/>
+      <line x1="19.9" y1="0.9" x2="19.1" y2="0.1"/>
+      <line x1="25.7" y1="0.9" x2="26.5" y2="0.1"/>
+      <line x1="19.9" y1="6.7" x2="19.1" y2="7.5"/>
+    </g>
+  </g>
+
+  <text x="420" y="212" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="88" font-weight="700" letter-spacing="-3">CanBang</text>
+  <text x="425" y="270" fill="#dbeafe" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="600" letter-spacing="2">MULTI-AGENT CANVAS</text>
+  <text x="425" y="323" fill="#bfdbfe" font-family="Arial, Helvetica, sans-serif" font-size="25">A shared workspace for people + agents.</text>
+
+  <rect x="420" y="385" width="650" height="128" rx="22" fill="url(#card)" stroke="#ffffff" stroke-opacity="0.24"/>
+  <circle cx="462" cy="430" r="11" fill="#34d399"/>
+  <text x="490" y="438" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="600">Project HQ</text>
+  <rect x="490" y="461" width="205" height="10" rx="5" fill="#93c5fd" opacity="0.85"/>
+  <rect x="716" y="461" width="126" height="10" rx="5" fill="#fbbf24" opacity="0.85"/>
+  <rect x="862" y="461" width="158" height="10" rx="5" fill="#86efac" opacity="0.85"/>
+  <text x="490" y="496" fill="#dbeafe" font-family="Arial, Helvetica, sans-serif" font-size="18">Plan, coordinate, ship.</text>
+
+  <text x="110" y="570" fill="#bfdbfe" font-family="Arial, Helvetica, sans-serif" font-size="20" letter-spacing="1">CANBANG.MD</text>
+</svg>
