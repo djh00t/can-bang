@@ -1,4 +1,4 @@
-# Delivery process — Can Bang
+# Delivery process — CanBang
 
 How this project turns a request into shipped, evidenced work. Every agent
 working in this repo follows this process; humans keep authority over merges,

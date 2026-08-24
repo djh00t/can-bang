@@ -197,7 +197,7 @@ export function repairSeededSkills(db: Db): void {
 }
 
 const SEED_PROJECT = {
-  name: 'Can Bang',
+  name: 'CanBang',
   description: 'Self-hosted emulation of workbench.md — this project, dogfooded.',
   phases: [
     {
@@ -256,7 +256,7 @@ const SEED_PROJECT = {
 
 function linkHqDoc(db: Db, accountId: string, projectId: string): void {
   const docId = randomId(22)
-  const content = `# Can Bang — HQ
+  const content = `# CanBang — HQ
 
 ## Board
 
@@ -280,7 +280,7 @@ state: building
 `
   db.prepare(
     'INSERT INTO docs (id, title, kind, owner_id, folder_id, content, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)',
-  ).run(docId, 'Can Bang — HQ', 'live', accountId, null, content, now(), now())
+  ).run(docId, 'CanBang — HQ', 'live', accountId, null, content, now(), now())
   bumpContent(db, docId, content, 'seed', false, 'live', 'seed')
   db.prepare('UPDATE projects SET doc_id=? WHERE id=?').run(docId, projectId)
 }
@@ -383,8 +383,13 @@ export function dedupeSeededProjects(db: Db): void {
 
 /** One-time rename of pre-rename seeded projects and HQ docs. */
 export function renameSeededProjects(db: Db): void {
-  db.prepare("UPDATE projects SET name='Can Bang' WHERE name='Workbench Local'").run()
   db.prepare(
-    "UPDATE docs SET title=replace(title, 'Workbench Local — HQ', 'Can Bang — HQ') WHERE title LIKE 'Workbench Local — HQ'",
+    "UPDATE projects SET name='CanBang' WHERE name IN ('Workbench Local', 'Can Bang')",
+  ).run()
+  db.prepare(
+    "UPDATE docs SET title=replace(title, 'Can Bang — HQ', 'CanBang — HQ') WHERE title LIKE '%Can Bang — HQ%'",
+  ).run()
+  db.prepare(
+    "UPDATE docs SET title=replace(title, 'Workbench Local — HQ', 'CanBang — HQ') WHERE title LIKE '%Workbench Local — HQ%'",
   ).run()
 }

@@ -1,4 +1,4 @@
-# Can Bang
+# CanBang
 
 Self-hosted Docker emulation of [workbench.md](https://workbench.md): collaborative
 markdown for humans and agents. Same URL surface, headers, status codes, and JSON

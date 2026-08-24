@@ -42,7 +42,7 @@ function resolveDoc(value: string | undefined, explicitKey: string | undefined) 
     if (key === undefined) key = url.searchParams.get('key') ?? undefined
   } catch {
     if (/[/?#]/.test(input))
-      return { error: inputError('doc must be a document ID or Can Bang document URL') }
+      return { error: inputError('doc must be a document ID or CanBang document URL') }
   }
   if (!/^[A-Za-z0-9_-]+$/.test(id))
     return { error: inputError('doc contains an invalid document ID') }
@@ -111,7 +111,7 @@ async function request(
     return {
       ok: false,
       status: null,
-      error: 'Could not reach Can Bang',
+      error: 'Could not reach CanBang',
       hint: `Check WORKBENCH_URL (${configuredUrl}) and network access, then retry.`,
       detail: err instanceof Error ? err.message : String(err),
     }
@@ -134,7 +134,7 @@ async function jsonRequest(path: string, options?: Parameters<typeof request>[1]
   return response.payload
 }
 
-const docArg = z.string().min(1).describe('Document ID or Can Bang document/share URL')
+const docArg = z.string().min(1).describe('Document ID or CanBang document/share URL')
 const keyArg = z
   .string()
   .min(1)
@@ -147,7 +147,7 @@ server.registerTool(
   'create_doc',
   {
     description:
-      'When a plan, spec, or decision needs to outlive this session, create a Can Bang doc. With a configured token it belongs to the user; otherwise the returned key is the anonymous edit capability.',
+      'When a plan, spec, or decision needs to outlive this session, create a CanBang doc. With a configured token it belongs to the user; otherwise the returned key is the anonymous edit capability.',
     inputSchema: {
       title: z.string().max(200).optional(),
       content: z.string().optional(),
@@ -424,7 +424,7 @@ server.registerTool(
       try {
         target = new URL(url!)
       } catch {
-        return resultFrom(inputError('url must be an http(s) Can Bang skill URL'))
+        return resultFrom(inputError('url must be an http(s) CanBang skill URL'))
       }
       const directory = target.pathname.match(/^\/skills\/([^/]+)\/?$/)
       if (directory) target.pathname = `/skills/${directory[1]!}/manifest`

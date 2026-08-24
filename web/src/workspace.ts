@@ -410,7 +410,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     root.innerHTML = `
       <div class="ws-topbar">
         <div class="ws-top-left">
-          <div class="ws-brand" data-go-home role="button" tabindex="0">Can Bang <span class="wb-local">Local</span></div>
+          <div class="ws-brand" data-go-home role="button" tabindex="0"><img src="/logo.svg" alt="" class="brand-logo" /> CanBang</div>
           <span class="muted small">${me ? `@${escapeHtml(me.username)}${me.agent_name ? ` · ${escapeHtml(me.agent_name)}` : ''}` : 'not signed in'}</span>
         </div>
         <div class="ws-top-actions">
@@ -790,13 +790,13 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       return `<div class="panel"><h3>GitHub Issues sync</h3>
         <div class="muted small">Repo: <code>${escapeHtml(g.repo ?? '')}</code>${g.syncEnabled ? ' · synced' : ''}</div>
         <div class="ws-modal-actions" style="margin-top:6px"><button class="btn sm primary" id="sync-github">Sync now</button><span class="muted small" id="sync-result"></span></div>
-        <div class="muted small">Tasks push to GitHub issues; Can Bang-marked issues import back into this project.</div></div>`
+        <div class="muted small">Tasks push to GitHub issues; CanBang-marked issues import back into this project.</div></div>`
     }
     return `<div class="panel"><h3>GitHub Issues sync <span class="tag">optional</span></h3>
       <div class="ws-modal-field"><span>Repo (owner/name)</span><input id="gh-repo" placeholder="djh00t/can-bang" /></div>
       <div class="ws-modal-field"><span>Personal access token (repo scope)</span><input id="gh-token" type="password" placeholder="ghp_…" /></div>
       <button class="btn sm" id="enable-github">Enable sync</button>
-      <div class="muted small">Tasks push to GitHub issues; issues created from Can Bang tasks import back.</div></div>`
+      <div class="muted small">Tasks push to GitHub issues; issues created from CanBang tasks import back.</div></div>`
   }
 
   const renderMatrix = () => {

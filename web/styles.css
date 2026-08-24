@@ -76,6 +76,13 @@ a:hover {
   white-space: nowrap;
 }
 
+.brand-logo {
+  height: 18px;
+  width: 18px;
+  vertical-align: -3px;
+  margin-right: 5px;
+}
+
 .wb-local {
   color: var(--accent);
   font-weight: 600;
@@ -725,6 +732,13 @@ textarea:focus {
   font-size: 15px;
   letter-spacing: -0.01em;
   cursor: pointer;
+}
+
+.ws-brand .brand-logo {
+  height: 18px;
+  width: 18px;
+  vertical-align: -3px;
+  margin-right: 5px;
 }
 
 .ws-brand:hover {

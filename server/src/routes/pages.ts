@@ -127,9 +127,9 @@ export function pagesRoutes(services: AppServices): express.Router {
 
   // Reference docs: raw markdown for agents, rendered HTML for browsers
   const references: [string, string, string][] = [
-    ['/agents.md', AGENTS_REF, 'Can Bang, for agents'],
-    ['/cli.md', CLI_REF, 'mde — the Can Bang CLI'],
-    ['/chief.md', CHIEF_REF, 'Can Bang, for chiefs of staff'],
+    ['/agents.md', AGENTS_REF, 'CanBang, for agents'],
+    ['/cli.md', CLI_REF, 'mde — the CanBang CLI'],
+    ['/chief.md', CHIEF_REF, 'CanBang, for chiefs of staff'],
     ['/docs/skill-review.md', SKILL_REVIEW_REF, 'Skill review policy'],
   ]
   for (const [path, markdown, title] of references) {
@@ -161,7 +161,7 @@ function sendSpa(res: Response, services: AppServices): void {
     res
       .type('html')
       .send(
-        '<!doctype html><html><head><title>Can Bang</title></head><body><h1>Can Bang</h1><p>The web editor is not bundled in this build.</p></body></html>',
+        '<!doctype html><html><head><title>CanBang</title></head><body><h1>CanBang</h1><p>The web editor is not bundled in this build.</p></body></html>',
       )
   }
 }
@@ -211,7 +211,7 @@ function handoffMarkdown(services: AppServices, req: Request, docId: string, rol
         : role === 'comment'
           ? 'read, comment'
           : 'read'
-  return `# Can Bang document ${docId}\n\nYou have **${role}** access to this document via a share link.\n\nOperations you may perform: ${ops}.\n\n- Read: GET ${base}/api/docs/${docId}/content (header X-Doc-Version, ETag)\n- Agent handoff: GET ${base}/d/${docId}/agent\n- Full protocol: ${base}/agents.md\n\nUse the same ${key ? '?key=' : 'X-Share-Key'} credential on every call.\n`
+  return `# CanBang document ${docId}\n\nYou have **${role}** access to this document via a share link.\n\nOperations you may perform: ${ops}.\n\n- Read: GET ${base}/api/docs/${docId}/content (header X-Doc-Version, ETag)\n- Agent handoff: GET ${base}/d/${docId}/agent\n- Full protocol: ${base}/agents.md\n\nUse the same ${key ? '?key=' : 'X-Share-Key'} credential on every call.\n`
 }
 
 export function templateContent(slug: string): string | null {
@@ -414,9 +414,9 @@ state: building
 `,
 }
 
-const AGENTS_REF = `# Can Bang, for agents
+const AGENTS_REF = `# CanBang, for agents
 
-This is a self-hosted Can Bang-compatible service. Everything a person can do in the editor, an agent can do over plain HTTP.
+This is a self-hosted CanBang-compatible service. Everything a person can do in the editor, an agent can do over plain HTTP.
 
 ## Access
 
@@ -457,7 +457,7 @@ POST /api/agents/register {"name","role"?:"agent|chief","harness"?,"machine"?}; 
 Errors are JSON {"error","hint"?} with 4xx status. Concurrency conflicts return 409 with currentVersion and a use object.
 `
 
-const CLI_REF = `# mde — the Can Bang CLI
+const CLI_REF = `# mde — the CanBang CLI
 
 Install: curl -fsSL http://HOST/install | sh (GET /cli is the executable).
 
@@ -508,7 +508,7 @@ Feedback
 Environment: MDE_URL, MDE_TOKEN, MDE_AUTHOR.
 `
 
-const CHIEF_REF = `# Can Bang, for chiefs of staff
+const CHIEF_REF = `# CanBang, for chiefs of staff
 
 Being chief is a role, not a rank. You are the user's agent: you watch their docs, triage asks, route work to project leads, and brief them.
 

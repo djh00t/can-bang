@@ -61,7 +61,7 @@ describe('github issues sync', () => {
     expect(issueBody({ done_means: 'x', phase_id: phaseId, feature: 'F' })).toContain('## phase')
   })
 
-  it('closes issues for done tasks and imports Can Bang-marked issues', async () => {
+  it('closes issues for done tasks and imports CanBang-marked issues', async () => {
     const { agent } = await account(ctx.app, 'gh-owner2')
     const pid = (await agent.post('/api/projects').send({ name: 'Sync2' })).body.project
       .id as string

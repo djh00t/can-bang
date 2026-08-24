@@ -89,7 +89,7 @@ export async function mountEditor(
       <div class="wb-shell">
         <header class="wb-topbar">
           <div class="wb-top-left">
-            <div class="wb-brand">Can Bang <span class="wb-local">Local</span></div>
+            <div class="wb-brand"><img src="/logo.svg" alt="" class="brand-logo" /> CanBang</div>
             <div class="wb-doc-title">${escapeHtml(title)}</div>
           </div>
           <div class="wb-top-actions">

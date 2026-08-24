@@ -21,7 +21,7 @@ describe('workspace hierarchy', () => {
     const list = await agent.get('/api/projects')
     const alpha = list.body.projects.find((p: { name: string }) => p.name === 'Alpha')
     expect(alpha).toBeTruthy()
-    expect(list.body.projects.some((p: { name: string }) => p.name === 'Can Bang')).toBe(true) // seeded
+    expect(list.body.projects.some((p: { name: string }) => p.name === 'CanBang')).toBe(true) // seeded
     const phase = await agent.post(`/api/projects/${pid}/phases`).send({ name: 'Phase 1' })
     expect(phase.status).toBe(201)
     const phaseId = phase.body.phase.id as string
