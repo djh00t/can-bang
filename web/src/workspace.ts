@@ -156,6 +156,21 @@ function openModal(opts: {
   })
 }
 
+export function renderAgentPromptModal(link: string, text: string, kickoff: string): string {
+  return `
+    <p class="muted small">Give each agent the same kickoff so they can join this project with the shared briefing.</p>
+    <div class="ws-modal-field"><span>One-line kickoff</span>
+      <textarea readonly rows="2" id="agent-kickoff">${escapeHtml(kickoff)}</textarea></div>
+    <div class="ws-modal-field"><span>Markdown URL for agents</span>
+      <input readonly value="${escapeHtml(link)}.md" /></div>
+    <div class="ws-modal-field"><span>Full briefing</span>
+      <textarea readonly rows="9" id="agent-prompt">${escapeHtml(text)}</textarea></div>
+    <div class="ws-modal-actions">
+      <button type="button" class="btn sm" id="copy-agent-kickoff">Copy kickoff</button>
+      <button type="button" class="btn sm" id="copy-agent-prompt">Copy briefing</button>
+    </div>`
+}
+
 function openInfoModal(title: string, html: string): void {
   const overlay = document.createElement('div')
   overlay.className = 'ws-modal-overlay'
@@ -172,10 +187,11 @@ function openInfoModal(title: string, html: string): void {
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) overlay.remove()
   })
-  const copyBtn = overlay.querySelector('#copy-prompt')
-  if (copyBtn) {
+  const wireCopy = (buttonSelector: string, fieldSelector: string) => {
+    const copyBtn = overlay.querySelector(buttonSelector)
+    if (!copyBtn) return
     copyBtn.addEventListener('click', async () => {
-      const ta = overlay.querySelector('#agent-prompt') as HTMLTextAreaElement | null
+      const ta = overlay.querySelector(fieldSelector) as HTMLTextAreaElement | null
       if (!ta) return
       try {
         await navigator.clipboard.writeText(ta.value)
@@ -186,6 +202,8 @@ function openInfoModal(title: string, html: string): void {
       copyBtn.textContent = 'Copied ✓'
     })
   }
+  wireCopy('#copy-agent-kickoff', '#agent-kickoff')
+  wireCopy('#copy-agent-prompt', '#agent-prompt')
 }
 
 export async function mountWorkspace(root: HTMLElement): Promise<void> {
@@ -888,24 +906,9 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
         <button class="btn sm" id="create-project-hq">Create HQ doc + prompt</button></div>`
     }
     return `<div class="panel"><h3>Agent onboarding</h3>
-      ${
-        agentPrompt
-          ? `<div class="ws-modal-field"><span>One-line kickoff (paste into each agent)</span>
-              <textarea readonly rows="2" id="agent-kickoff">${escapeHtml(
-                `Read ${location.origin}/agents.md, then work the doc at ${agentPrompt.link} — follow AGENTS: READ THIS FIRST.`,
-              )}</textarea></div>
-             <div class="ws-modal-field"><span>Markdown URL for agents (curl / Codex / Claude fetch this)</span>
-              <input readonly value="${escapeHtml(agentPrompt.link)}.md" /></div>
-             <div class="ws-modal-field"><span>Full briefing (markdown — also added to the doc)</span>
-              <textarea readonly rows="9" id="agent-prompt">${escapeHtml(agentPrompt.text)}</textarea></div>
-             <div class="ws-modal-actions">
-               <button class="btn sm primary" id="copy-agent-kickoff">Copy kickoff</button>
-               <button class="btn sm" id="copy-agent-prompt">Copy briefing</button>
-             </div>
-             <div class="muted small">Agents read markdown: <code>${escapeHtml(agentPrompt.link)}.md</code> or the <code>/agent</code> handoff.</div>`
-          : `<span class="muted small">Mint an edit link to the project doc and generate the onboarding prompt for your Codex instances.</span>
-             <button class="btn sm" id="gen-agent-prompt">Generate agent prompt + link</button>`
-      }
+      <span class="muted small">Open a ready-to-paste kickoff, markdown link, and full briefing for a new agent.</span>
+      <button class="btn sm primary" id="onboard-agent">Onboard Agent</button>
+      ${agentPrompt ? '<div class="muted small">Prompt link ready for this project.</div>' : ''}
       <div class="ws-modal-actions" style="margin-top:6px"><button class="btn sm" id="add-agent-briefing">Add AGENTS briefing to project doc</button></div>
       <div class="muted small">Paste the same prompt into each Codex instance — they self-assign roles (one agent per role).</div></div>`
   }
@@ -1134,18 +1137,10 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     })
     document.getElementById('enable-github')?.addEventListener('click', () => void enableGithub())
     document.getElementById('sync-github')?.addEventListener('click', () => void runGithubSync())
-    document
-      .getElementById('gen-agent-prompt')
-      ?.addEventListener('click', () => void genAgentPrompt())
+    document.getElementById('onboard-agent')?.addEventListener('click', () => void onboardAgent())
     document
       .getElementById('create-project-hq')
       ?.addEventListener('click', () => void createProjectHq())
-    document
-      .getElementById('copy-agent-prompt')
-      ?.addEventListener('click', () => void copyAgentPrompt())
-    document
-      .getElementById('copy-agent-kickoff')
-      ?.addEventListener('click', () => void copyAgentKickoff())
     document
       .getElementById('add-agent-briefing')
       ?.addEventListener('click', () => void addAgentBriefing())
@@ -1427,11 +1422,17 @@ ${data!.project.description ?? 'Ship the current phase, then the next.'}`
 
 ` + agentBriefing()
 
-  const genAgentPrompt = async () => {
+  const onboardAgent = async () => {
     if (!data?.project.docId) return
-    const s = await api.share(data.project.docId, 'edit')
-    agentPrompt = { link: s.share.url, text: buildAgentPrompt(s.share.url) }
-    render()
+    if (!agentPrompt) {
+      const s = await api.share(data.project.docId, 'edit')
+      agentPrompt = { link: s.share.url, text: buildAgentPrompt(s.share.url) }
+    }
+    const kickoff = `Read ${location.origin}/agents.md, then work the project doc at ${agentPrompt.link} — follow AGENTS: READ THIS FIRST.`
+    openInfoModal(
+      'Onboard Agent',
+      renderAgentPromptModal(agentPrompt.link, agentPrompt.text, kickoff),
+    )
   }
 
   const createProjectHq = async () => {
@@ -1443,28 +1444,6 @@ ${data!.project.description ?? 'Ship the current phase, then the next.'}`
     agentPrompt = { link: s.share.url, text: buildAgentPrompt(s.share.url) }
     await loadProject()
     render()
-  }
-
-  const copyAgentPrompt = async () => {
-    const ta = document.getElementById('agent-prompt') as HTMLTextAreaElement | null
-    if (!ta) return
-    try {
-      await navigator.clipboard.writeText(ta.value)
-    } catch {
-      ta.select()
-      document.execCommand('copy')
-    }
-  }
-
-  const copyAgentKickoff = async () => {
-    const ta = document.getElementById('agent-kickoff') as HTMLTextAreaElement | null
-    if (!ta) return
-    try {
-      await navigator.clipboard.writeText(ta.value)
-    } catch {
-      ta.select()
-      document.execCommand('copy')
-    }
   }
 
   const addAgentBriefing = async () => {
