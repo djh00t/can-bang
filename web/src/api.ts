@@ -369,7 +369,7 @@ export class Api {
   async createProject(
     name: string,
     description?: string,
-  ): Promise<{ project: { id: string; name: string } }> {
+  ): Promise<{ project: { id: string; name: string; docId: string } }> {
     const res = await this.request('/api/projects', {
       method: 'POST',
       body: JSON.stringify({ name, description }),

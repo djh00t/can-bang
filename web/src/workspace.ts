@@ -1070,9 +1070,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     let shareUrl: string | null = null
     if (vals.hq === 'yes') {
       try {
-        const doc = await api.createOwnedDoc(`${name} — HQ`, hqContent(name))
-        await api.patchProject(res.project.id, { doc_id: doc.id })
-        const s = await api.share(doc.id, 'edit')
+        const s = await api.share((res.project as { docId?: string }).docId ?? '', 'edit')
         shareUrl = s.share.url
       } catch {
         shareUrl = null

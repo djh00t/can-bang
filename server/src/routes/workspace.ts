@@ -6,6 +6,8 @@ import { resolveAccess } from '../auth.js'
 import { asyncHandler } from '../util.js'
 import { now } from '@can-bang/core'
 import { realGh, syncProjectGithub } from '../github.js'
+import { syncProjectBoard } from '../board-sync.js'
+import { bumpContent } from '../db.js'
 
 export interface ProjectRow {
   id: string
@@ -239,7 +241,35 @@ export function workspaceRoutes(services: AppServices): express.Router {
         now(),
         now(),
       )
-      res.status(201).json({ project: { id, name } })
+      const docId = randomId(22)
+      const content = `# ${name} — HQ
+
+## Board
+
+\`\`\`board #tickets
+## Todo
+## Doing
+## Testing
+## Done
+\`\`\`
+
+## Status
+
+\`\`\`status
+state: building
+\`\`\`
+
+## Team chat
+
+\`\`\`chat #general
+\`\`\`
+`
+      db.prepare(
+        'INSERT INTO docs (id, title, kind, owner_id, folder_id, content, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)',
+      ).run(docId, `${name} — HQ`, 'live', accountId, null, content, now(), now())
+      bumpContent(db, docId, content, 'seed', false, 'live', 'seed')
+      db.prepare('UPDATE projects SET doc_id=? WHERE id=?').run(docId, id)
+      res.status(201).json({ project: { id, name, docId } })
     }),
   )
 
@@ -248,6 +278,7 @@ export function workspaceRoutes(services: AppServices): express.Router {
     asyncHandler((req: Request, res: Response) => {
       const accountId = accountIdOf(req)
       const project = projectOf(db, accountId, req.params.id!)
+      syncProjectBoard(db, project.id)
       const phases = db
         .prepare('SELECT * FROM phases WHERE project_id=? ORDER BY ord ASC')
         .all(project.id) as PhaseRow[]
@@ -573,6 +604,7 @@ export function workspaceRoutes(services: AppServices): express.Router {
         now(),
       )
       recordTaskEvent(db, id, phase.id, status, now())
+      syncProjectBoard(db, phase.project_id)
       res.status(201).json({ task: { id, title, status } })
     }),
   )
@@ -636,6 +668,12 @@ export function workspaceRoutes(services: AppServices): express.Router {
         now(),
         task.id,
       )
+      const projectRow = db
+        .prepare('SELECT project_id FROM phases WHERE id=?')
+        .get(task.phase_id) as {
+        project_id: string
+      }
+      syncProjectBoard(db, projectRow.project_id)
       res.json({ ok: true })
     }),
   )

@@ -155,4 +155,64 @@ describe('workspace hierarchy', () => {
     expect(doc.title).toBe('Bare — HQ')
     expect(doc.content).toContain('```chat')
   })
+
+  it('mirrors the task board into the project doc board fence', async () => {
+    const { agent } = await account(ctx.app, 'board-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'BoardSync' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const task = await agent
+      .post(`/api/phases/${phaseId}/tasks`)
+      .send({ title: 'Build the widget', feature: 'Widgets' })
+    const taskId = task.body.task.id as string
+    const overview = await agent.get(`/api/projects/${pid}`)
+    const docId = overview.body.project.docId as string
+    const doc = await agent.get(`/api/docs/${docId}/content`)
+    expect(doc.text).toContain('Build the widget')
+    expect(doc.text).toContain(`task: ${taskId}`)
+  })
+
+  it('absorbs agent edits to the doc board back into tasks', async () => {
+    const { agent } = await account(ctx.app, 'claim-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'Claims' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({ title: 'Claim me' })
+    const taskId = task.body.task.id as string
+    const overview = await agent.get(`/api/projects/${pid}`)
+    const docId = overview.body.project.docId as string
+    let content = (await agent.get(`/api/docs/${docId}/content`)).text
+    content = content.replace('## Todo\n- [ ] Claim me', '## Doing\n- [>] Claim me')
+    const version = (await agent.get(`/api/docs/${docId}/content`)).headers[
+      'x-doc-version'
+    ] as string
+    const put = await agent
+      .put(`/api/docs/${docId}/content`)
+      .set('if-match', version)
+      .send({ content })
+    expect(put.status).toBe(200)
+    const after = await agent.get(`/api/projects/${pid}`)
+    expect(after.body.tasks.find((t: { id: string }) => t.id === taskId).status).toBe('doing')
+
+    // Agent adds a brand-new card without a task marker.
+    let content2 = (await agent.get(`/api/docs/${docId}/content`)).text
+    content2 = content2.replace(
+      '## Todo\n',
+      '## Todo\n- [ ] New agent card @agent #newfeat\n  phase: P1\n  done-means: verified by a human\n',
+    )
+    const version2 = (await agent.get(`/api/docs/${docId}/content`)).headers[
+      'x-doc-version'
+    ] as string
+    await agent
+      .put(`/api/docs/${docId}/content`)
+      .set('if-match', version2)
+      .send({ content: content2 })
+    const after2 = await agent.get(`/api/projects/${pid}`)
+    const added = after2.body.tasks.find((t: { title: string }) => t.title === 'New agent card')
+    expect(added).toBeTruthy()
+    expect(added.assignee).toBe('agent')
+    expect(added.status).toBe('todo')
+  })
 })

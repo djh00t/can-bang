@@ -278,6 +278,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   doc_id TEXT REFERENCES docs(id),
   github_issue_id INTEGER,
   github_issue_url TEXT,
+  board_sync_ts INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -368,6 +369,7 @@ export function openDb(path: string): Db {
   ensureColumn(db, 'tasks', 'doc_id', 'doc_id TEXT REFERENCES docs(id)')
   ensureColumn(db, 'tasks', 'github_issue_id', 'github_issue_id INTEGER')
   ensureColumn(db, 'tasks', 'github_issue_url', 'github_issue_url TEXT')
+  ensureColumn(db, 'tasks', 'board_sync_ts', 'board_sync_ts INTEGER')
   ensureColumn(db, 'releases', 'doc_id', 'doc_id TEXT REFERENCES docs(id)')
   return db
 }
