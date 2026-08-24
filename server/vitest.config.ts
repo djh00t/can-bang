@@ -4,7 +4,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['test/**/*.test.ts'],
-    fileParallelism: false,
+    pool: 'forks',
+    maxWorkers: 1,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary'],

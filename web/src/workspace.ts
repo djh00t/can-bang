@@ -795,9 +795,19 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     return `<div class="panel"><h3>Agent onboarding</h3>
       ${
         agentPrompt
-          ? `<div class="ws-modal-field"><span>Prompt for your Codex instances</span>
-              <textarea readonly rows="12" id="agent-prompt">${escapeHtml(agentPrompt.text)}</textarea></div>
-             <div class="ws-modal-actions"><button class="btn sm primary" id="copy-agent-prompt">Copy prompt</button><span class="muted small">${escapeHtml(agentPrompt.link)}</span></div>`
+          ? `<div class="ws-modal-field"><span>One-line kickoff (paste into each agent)</span>
+              <textarea readonly rows="2" id="agent-kickoff">${escapeHtml(
+                `Read ${location.origin}/agents.md, then work the doc at ${agentPrompt.link} — follow AGENTS: READ THIS FIRST.`,
+              )}</textarea></div>
+             <div class="ws-modal-field"><span>Markdown URL for agents (curl / Codex / Claude fetch this)</span>
+              <input readonly value="${escapeHtml(agentPrompt.link)}.md" /></div>
+             <div class="ws-modal-field"><span>Full briefing (markdown — also added to the doc)</span>
+              <textarea readonly rows="9" id="agent-prompt">${escapeHtml(agentPrompt.text)}</textarea></div>
+             <div class="ws-modal-actions">
+               <button class="btn sm primary" id="copy-agent-kickoff">Copy kickoff</button>
+               <button class="btn sm" id="copy-agent-prompt">Copy briefing</button>
+             </div>
+             <div class="muted small">Agents read markdown: <code>${escapeHtml(agentPrompt.link)}.md</code> or the <code>/agent</code> handoff.</div>`
           : `<span class="muted small">Mint an edit link to the project doc and generate the onboarding prompt for your Codex instances.</span>
              <button class="btn sm" id="gen-agent-prompt">Generate agent prompt + link</button>`
       }
@@ -1036,6 +1046,9 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     document
       .getElementById('copy-agent-prompt')
       ?.addEventListener('click', () => void copyAgentPrompt())
+    document
+      .getElementById('copy-agent-kickoff')
+      ?.addEventListener('click', () => void copyAgentKickoff())
     document
       .getElementById('add-agent-briefing')
       ?.addEventListener('click', () => void addAgentBriefing())
@@ -1331,6 +1344,17 @@ ${data!.project.description ?? 'Ship the current phase, then the next.'}`
 
   const copyAgentPrompt = async () => {
     const ta = document.getElementById('agent-prompt') as HTMLTextAreaElement | null
+    if (!ta) return
+    try {
+      await navigator.clipboard.writeText(ta.value)
+    } catch {
+      ta.select()
+      document.execCommand('copy')
+    }
+  }
+
+  const copyAgentKickoff = async () => {
+    const ta = document.getElementById('agent-kickoff') as HTMLTextAreaElement | null
     if (!ta) return
     try {
       await navigator.clipboard.writeText(ta.value)
