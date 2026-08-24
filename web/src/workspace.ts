@@ -104,6 +104,7 @@ function openModal(opts: {
     placeholder?: string
     type?: string
     checked?: boolean
+    options?: string[]
   }[]
 }): Promise<Record<string, string> | null> {
   return new Promise((resolve) => {
@@ -117,7 +118,11 @@ function openModal(opts: {
             .map(
               (f) =>
                 `<label class="ws-modal-field"><span>${escapeHtml(f.label)}${f.required ? ' *' : ''}</span>
-                  <input name="${f.name}" type="${f.type ?? 'text'}" ${f.required ? 'required' : ''} ${f.checked ? 'checked' : ''} placeholder="${escapeHtml(f.placeholder ?? '')}" /></label>`,
+                  ${
+                    f.type === 'select'
+                      ? `<select name="${f.name}">${(f.options ?? []).map((o) => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join('')}</select>`
+                      : `<input name="${f.name}" type="${f.type ?? 'text'}" ${f.required ? 'required' : ''} ${f.checked ? 'checked' : ''} placeholder="${escapeHtml(f.placeholder ?? '')}" />`
+                  }</label>`,
             )
             .join('')}
           <div class="ws-modal-actions">
@@ -308,7 +313,6 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   const loadProject = async () => {
     if (!projectId) return
     data = await api.project(projectId)
-    if (!phaseId && data.phases[0]) phaseId = data!.phases[0].id
     if (view === 'matrix') matrixData = await api.matrix(projectId)
     if (phaseId && !burndownCache.has(phaseId)) {
       burndownCache.set(phaseId, await api.phaseBurndown(phaseId))
@@ -1111,7 +1115,36 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   }
 
   const addTask = async () => {
-    if (!phaseId) return
+    if (!data) return
+    if (!phaseId) {
+      const vals = await openModal({
+        title: 'New task',
+        submit: 'Add task',
+        fields: [
+          {
+            name: 'phase',
+            label: 'Phase',
+            type: 'select',
+            options: data.phases.map((p) => p.name),
+            required: true,
+          },
+          { name: 'title', label: 'Task title', required: true },
+          { name: 'feature', label: 'Feature (for the matrix)' },
+          { name: 'assignee', label: 'Assignee (@name)' },
+        ],
+      })
+      if (!vals) return
+      const phase = data.phases.find((p) => p.name === (vals.phase ?? ''))
+      if (!phase) return
+      await api.createTask(phase.id, {
+        title: (vals.title ?? '').trim(),
+        feature: vals.feature?.trim() || undefined,
+        assignee: vals.assignee?.trim() || undefined,
+      })
+      await loadProject()
+      render()
+      return
+    }
     const title = prompt('Task title:')
     if (!title) return
     const feature = prompt('Feature (for the matrix):') ?? undefined

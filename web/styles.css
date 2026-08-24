@@ -1429,6 +1429,15 @@ textarea:focus {
   margin-top: 3px;
 }
 
+.ws-modal-field select {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  padding: 8px 11px;
+  font: inherit;
+  background: #fff;
+}
+
 .ws-modal-field textarea {
   resize: vertical;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
