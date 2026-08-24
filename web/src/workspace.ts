@@ -535,16 +535,16 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
 
   const renderInbox = () => `
     <div class="ws-inbox panel">
-      <h3>Needs human attention</h3>
+      <h3>Needs human attention${inbox.length ? ` <span class="col-count">${inbox.length}</span>` : ''}</h3>
       ${
         inbox.length
           ? inbox
-              .slice(0, 6)
+              .slice(0, 20)
               .map(
                 (i) =>
                   `<div class="ws-inbox-item">${
                     i.url
-                      ? `<a href="${escapeHtml(i.url)}" target="_blank" rel="noopener">${escapeHtml(i.title)}</a>`
+                      ? `<a href="${escapeHtml(i.url)}" target="_blank" rel="noopener" title="opens in a new tab">${escapeHtml(i.title)} ↗</a>`
                       : `<a href="/d/${i.docId}">${escapeHtml(i.title)}</a>`
                   } <span class="tag">${escapeHtml(i.type)}</span><div class="muted small">${escapeHtml(i.message.slice(0, 90))}</div></div>`,
               )
@@ -552,6 +552,17 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
           : '<span class="muted small">Nothing needs you right now.</span>'
       }
     </div>`
+
+  const refreshInbox = async () => {
+    if (!me) return
+    try {
+      inbox = (await api.inbox()).items
+    } catch {
+      return
+    }
+    const el = root.querySelector('.ws-inbox')
+    if (el) el.outerHTML = renderInbox()
+  }
 
   const renderMain = (phase: Phase | null, phaseTasks: ProjectData['tasks']) => {
     if (!me) {
@@ -1424,6 +1435,7 @@ ${data!.project.description ?? 'Ship the current phase, then the next.'}`
   detail = route.detail
 
   await load()
+  setInterval(() => void refreshInbox(), 60_000)
   if (projectId) {
     await loadProject()
     if (detail === 'release' && releaseId) releaseDetail = await api.releaseDetail(releaseId)
