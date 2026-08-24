@@ -207,6 +207,22 @@ export function navigateToTreeTask(
   }
 }
 
+export function navigateToTreeRelease(
+  state: WorkspaceNavigationState,
+  ownerProjectId: string,
+  phaseId: string,
+  releaseId: string | null,
+): WorkspaceNavigationState {
+  return {
+    ...state,
+    projectId: ownerProjectId,
+    phaseId,
+    detail: releaseId ? 'release' : 'project',
+    releaseId,
+    taskId: null,
+  }
+}
+
 export function shouldReloadProjectMatrix(
   state: Pick<WorkspaceNavigationState, 'projectId' | 'view'>,
   ownerProjectId: string,
@@ -508,11 +524,24 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       await loadChat()
     }
     if (reloadMatrix && ownerProjectId) matrixData = await api.matrix(ownerProjectId)
-    releaseId = id
-    detail = 'release'
     releaseDetail = await api.releaseDetail(id)
-    if (projectId) expanded.add(`project:${projectId}`)
-    if (releaseDetail) expanded.add(`phase:${releaseDetail.phase.id}`)
+    if (projectId && releaseDetail) {
+      const next = navigateToTreeRelease(
+        { projectId, phaseId, view, detail, releaseId, taskId },
+        projectId,
+        releaseDetail.phase.id,
+        id,
+      )
+      projectId = next.projectId
+      phaseId = next.phaseId
+      view = next.view
+      detail = next.detail
+      releaseId = next.releaseId
+      taskId = next.taskId
+      taskDetail = null
+      expanded.add(`project:${projectId}`)
+      expanded.add(`phase:${phaseId}`)
+    }
     syncUrl()
     render()
   }
@@ -1204,9 +1233,25 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
                 await loadChat()
               }
             }
-            phaseId = b.dataset.releasePhase ?? null
-            if (projectId) expanded.add(`project:${projectId}`)
-            if (phaseId) expanded.add(`phase:${phaseId}`)
+            const targetPhaseId = b.dataset.releasePhase
+            if (projectId && targetPhaseId) {
+              const next = navigateToTreeRelease(
+                { projectId, phaseId, view, detail, releaseId, taskId },
+                projectId,
+                targetPhaseId,
+                null,
+              )
+              projectId = next.projectId
+              phaseId = next.phaseId
+              view = next.view
+              detail = next.detail
+              releaseId = next.releaseId
+              taskId = next.taskId
+              taskDetail = null
+              releaseDetail = null
+              expanded.add(`project:${projectId}`)
+              expanded.add(`phase:${phaseId}`)
+            }
             syncUrl()
             render()
           })()

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  navigateToTreeRelease,
   navigateToTreeTask,
   renderAgentPromptModal,
   renderProjectTreeLabel,
@@ -76,4 +77,32 @@ test('cross-project release navigation reloads matrix data only when needed', ()
     shouldReloadProjectMatrix({ projectId: 'old-project', view: 'pipeline' }, 'new-project'),
     false,
   )
+})
+
+test('tree release navigation clears stale task state and uses the release phase', () => {
+  const state = {
+    projectId: 'old-project',
+    phaseId: 'old-phase',
+    view: 'pipeline' as const,
+    detail: 'project' as const,
+    releaseId: null,
+    taskId: 'old-task',
+  }
+
+  assert.deepEqual(navigateToTreeRelease(state, 'new-project', 'new-phase', 'new-release'), {
+    projectId: 'new-project',
+    phaseId: 'new-phase',
+    view: 'pipeline',
+    detail: 'release',
+    releaseId: 'new-release',
+    taskId: null,
+  })
+  assert.deepEqual(navigateToTreeRelease(state, 'new-project', 'new-phase', null), {
+    projectId: 'new-project',
+    phaseId: 'new-phase',
+    view: 'pipeline',
+    detail: 'project',
+    releaseId: null,
+    taskId: null,
+  })
 })
