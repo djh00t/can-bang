@@ -383,6 +383,7 @@ export function openDb(path: string): Db {
   ensureColumn(db, 'projects', 'github_token', 'github_token TEXT')
   ensureColumn(db, 'projects', 'github_sync', 'github_sync INTEGER NOT NULL DEFAULT 0')
   ensureColumn(db, 'projects', 'board_indexed_at', 'board_indexed_at INTEGER')
+  ensureColumn(db, 'project_keys', 'revoked_at', 'revoked_at INTEGER')
   ensureColumn(db, 'phases', 'doc_id', 'doc_id TEXT REFERENCES docs(id)')
   ensureColumn(db, 'tasks', 'description', 'description TEXT')
   ensureColumn(db, 'tasks', 'blockers', 'blockers TEXT')

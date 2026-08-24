@@ -75,7 +75,7 @@ export function projectKeyFromRequest(
     .prepare(
       `SELECT p.id AS project_id, p.owner_id
        FROM project_keys k JOIN projects p ON p.id=k.project_id
-       WHERE k.key_hash=?`,
+       WHERE k.key_hash=? AND k.revoked_at IS NULL`,
     )
     .get(hashSecret(token)) as { project_id: string; owner_id: string } | undefined
   if (!row)

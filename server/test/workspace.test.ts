@@ -79,6 +79,9 @@ describe('workspace hierarchy', () => {
       .project.id as string
     const phaseId = (await agent.post(`/api/projects/${projectId}/phases`).send({ name: 'MVP' }))
       .body.phase.id as string
+    const externalDoc = await agent
+      .post('/api/docs')
+      .send({ title: 'External', content: '# External\n' })
 
     const minted = await agent.post(`/api/projects/${projectId}/api-keys`).send({ label: 'agent' })
     expect(minted.status).toBe(201)
@@ -86,6 +89,13 @@ describe('workspace hierarchy', () => {
     expect(minted.body.label).toBe('agent')
     const key = minted.body.key as string
     const auth = { authorization: `Bearer ${key}` }
+    const keyInfo = await request(ctx.app).get('/api/project-key').set(auth)
+    expect(keyInfo.status).toBe(200)
+    expect(keyInfo.body.projectId).toBe(projectId)
+    const listed = await agent.get(`/api/projects/${projectId}/api-keys`)
+    expect(listed.status).toBe(200)
+    expect(listed.body.keys).toHaveLength(1)
+    expect(listed.body.keys[0].revoked_at).toBeNull()
 
     const project = await request(ctx.app).get(`/api/projects/${projectId}`).set(auth)
     expect(project.status).toBe(200)
@@ -97,6 +107,11 @@ describe('workspace hierarchy', () => {
     expect(task.status).toBe(201)
     const taskDetail = await request(ctx.app).get(`/api/tasks/${task.body.task.id}`).set(auth)
     expect(taskDetail.status).toBe(200)
+    const unsafeLink = await request(ctx.app)
+      .patch(`/api/tasks/${task.body.task.id}`)
+      .set(auth)
+      .send({ doc_id: externalDoc.body.doc.id })
+    expect(unsafeLink.status).toBe(403)
     expect((await request(ctx.app).get(`/api/projects/${otherProjectId}`).set(auth)).status).toBe(
       404,
     )
@@ -105,6 +120,14 @@ describe('workspace hierarchy', () => {
     expect(
       (await request(ctx.app).post(`/api/projects/${projectId}/api-keys`).set(auth)).status,
     ).toBe(401)
+    const revoked = await agent.delete(
+      `/api/projects/${projectId}/api-keys/${listed.body.keys[0].id}`,
+    )
+    expect(revoked.status).toBe(200)
+    expect((await request(ctx.app).get(`/api/projects/${projectId}`).set(auth)).status).toBe(401)
+    expect(
+      (await agent.get(`/api/projects/${projectId}/api-keys`)).body.keys[0].revoked_at,
+    ).toBeTypeOf('number')
   })
 
   it('aggregates the feature-status matrix across phases', async () => {

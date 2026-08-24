@@ -227,6 +227,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   let data: ProjectData | null = null
   let matrixData: MatrixData | null = null
   let releaseDetail: Awaited<ReturnType<Api['releaseDetail']>> | null = null
+  let projectKeys: Awaited<ReturnType<Api['projectKeys']>>['keys'] = []
   let inbox: {
     docId: string
     title: string
@@ -345,6 +346,11 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   const loadProject = async () => {
     if (!projectId) return
     data = await api.project(projectId)
+    try {
+      projectKeys = (await api.projectKeys(projectId)).keys
+    } catch {
+      projectKeys = []
+    }
     if (view === 'matrix') matrixData = await api.matrix(projectId)
     if (phaseId && !burndownCache.has(phaseId)) {
       burndownCache.set(phaseId, await api.phaseBurndown(phaseId))
@@ -360,6 +366,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     taskDetail = null
     releaseDetail = null
     data = null
+    projectKeys = []
     matrixData = null
     detail = 'project'
     view = 'overview'
@@ -375,6 +382,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     view = 'overview'
     taskId = null
     taskDetail = null
+    projectKeys = []
     await loadProject()
     expanded.add(`project:${id}`)
     if (phaseId) expanded.add(`phase:${phaseId}`)
@@ -885,9 +893,18 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
 
   const renderProjectKeys = () => {
     const count = data!.project.apiKeyCount
+    const keyRows = projectKeys.length
+      ? projectKeys
+          .map(
+            (key) =>
+              `<div class="muted small"><code>${escapeHtml(key.id)}</code>${key.label ? ` · ${escapeHtml(key.label)}` : ''}${key.revoked_at ? ' · revoked' : ` <button class="btn sm" data-revoke-project-key="${escapeHtml(key.id)}">Revoke</button>`}</div>`,
+          )
+          .join('')
+      : '<div class="muted small">No project keys minted yet.</div>'
     return `<div class="panel"><h3>Project settings</h3>
       <div class="muted small">Mint a project-scoped API key for agents. It can read and update this project's workspace, but cannot access account routes or other projects.</div>
       <div class="ws-modal-actions" style="margin-top:6px"><button class="btn sm" id="mint-project-key">Mint project API key</button><span class="muted small">${count} active key${count === 1 ? '' : 's'}</span></div>
+      <div style="margin-top:6px">${keyRows}</div>
       <div class="muted small">The secret is shown once after minting. Store it as <code>Authorization: Bearer pk_...</code>.</div>
     </div>`
   }
@@ -1161,6 +1178,12 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     document
       .getElementById('mint-project-key')
       ?.addEventListener('click', () => void mintProjectKey())
+    document.querySelectorAll<HTMLButtonElement>('[data-revoke-project-key]').forEach((button) => {
+      button.addEventListener(
+        'click',
+        () => void revokeProjectKey(button.dataset.revokeProjectKey!),
+      )
+    })
     document.getElementById('onboard-agent')?.addEventListener('click', () => void onboardAgent())
     document
       .getElementById('create-project-hq')
@@ -1409,6 +1432,17 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       )
     } catch (e) {
       alert(`Project key mint failed: ${(e as Error).message}`)
+    }
+  }
+
+  const revokeProjectKey = async (keyId: string) => {
+    if (!projectId || !confirm('Revoke this project key? Agents using it will lose access.')) return
+    try {
+      await api.revokeProjectKey(projectId, keyId)
+      await loadProject()
+      render()
+    } catch (e) {
+      alert(`Project key revoke failed: ${(e as Error).message}`)
     }
   }
 

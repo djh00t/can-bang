@@ -702,15 +702,19 @@ if (process.argv.includes('--health') || process.argv.includes('doctor')) {
     )
   } else {
     try {
-      const r = await fetch(`${configuredUrl}/api/me`, {
+      const projectKey = /^pk_[A-Za-z0-9_-]+$/.test(token)
+      const r = await fetch(`${configuredUrl}${projectKey ? '/api/project-key' : '/api/me'}`, {
         headers: { authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(8000),
       })
-      if (r.ok)
+      if (r.ok) {
+        const body = (await r.json()) as { user?: { username?: string }; projectId?: string }
         console.error(
-          `ok  token valid (@${((await r.json()) as { user?: { username?: string } }).user?.username || 'account'})`,
+          projectKey
+            ? `ok  project token valid (project ${body.projectId || 'scoped'})`
+            : `ok  token valid (@${body.user?.username || 'account'})`,
         )
-      else problems.push(`WORKBENCH_TOKEN rejected (HTTP ${r.status})`)
+      } else problems.push(`WORKBENCH_TOKEN rejected (HTTP ${r.status})`)
     } catch (e) {
       problems.push(`token check failed (${(e as Error).message})`)
     }

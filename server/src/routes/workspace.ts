@@ -202,6 +202,19 @@ export function workspaceRoutes(services: AppServices): express.Router {
     return projectAccountIdOf(req, row.project_id)
   }
 
+  const rejectProjectKeyDocLink = (req: Request): void => {
+    if (
+      Object.prototype.hasOwnProperty.call(req.body ?? {}, 'doc_id') &&
+      projectKeyFromRequest(db, req)
+    ) {
+      throw new ApiError(
+        403,
+        'project keys cannot link documents',
+        'Use an account token to link documents to project entities.',
+      )
+    }
+  }
+
   const projectOf = (db: Db, accountId: string, id: string): ProjectRow => {
     const p = db.prepare('SELECT * FROM projects WHERE id=? AND owner_id=?').get(id, accountId) as
       ProjectRow | undefined
@@ -326,6 +339,47 @@ state: building
   )
 
   r.get(
+    '/api/projects/:id/api-keys',
+    asyncHandler((req: Request, res: Response) => {
+      const project = projectOf(db, accountIdOf(req), req.params.id!)
+      const keys = db
+        .prepare(
+          'SELECT id, label, created_at, revoked_at FROM project_keys WHERE project_id=? ORDER BY created_at DESC',
+        )
+        .all(project.id) as {
+        id: string
+        label: string | null
+        created_at: number
+        revoked_at: number | null
+      }[]
+      res.json({ keys })
+    }),
+  )
+
+  r.delete(
+    '/api/projects/:id/api-keys/:keyId',
+    asyncHandler((req: Request, res: Response) => {
+      const project = projectOf(db, accountIdOf(req), req.params.id!)
+      const result = db
+        .prepare(
+          'UPDATE project_keys SET revoked_at=COALESCE(revoked_at, ?) WHERE id=? AND project_id=?',
+        )
+        .run(now(), req.params.keyId!, project.id)
+      if (!result.changes) throw notFound('project key not found')
+      res.json({ ok: true })
+    }),
+  )
+
+  r.get(
+    '/api/project-key',
+    asyncHandler((req: Request, res: Response) => {
+      const projectKey = projectKeyFromRequest(db, req)
+      if (!projectKey) throw new ApiError(401, 'project key required')
+      res.json({ projectId: projectKey.projectId })
+    }),
+  )
+
+  r.get(
     '/api/projects/:id',
     asyncHandler((req: Request, res: Response) => {
       const accountId = projectAccountIdOf(req, req.params.id!)
@@ -358,7 +412,9 @@ state: building
           },
           apiKeyCount: (
             db
-              .prepare('SELECT COUNT(*) AS c FROM project_keys WHERE project_id=?')
+              .prepare(
+                'SELECT COUNT(*) AS c FROM project_keys WHERE project_id=? AND revoked_at IS NULL',
+              )
               .get(project.id) as {
               c: number
             }
@@ -442,6 +498,7 @@ state: building
     asyncHandler((req: Request, res: Response) => {
       const accountId = projectAccountIdForPhase(req, req.params.id!)
       const phase = phaseOf(db, accountId, req.params.id!)
+      rejectProjectKeyDocLink(req)
       const name =
         typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 120) : undefined
       const status = ['planned', 'active', 'done'].includes(req.body?.status)
@@ -465,6 +522,7 @@ state: building
     asyncHandler((req: Request, res: Response) => {
       const accountId = projectAccountIdOf(req, req.params.id!)
       const project = projectOf(db, accountId, req.params.id!)
+      rejectProjectKeyDocLink(req)
       const name =
         typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 120) : undefined
       const docId =
@@ -581,6 +639,7 @@ state: building
     asyncHandler((req: Request, res: Response) => {
       const accountId = projectAccountIdForRelease(req, req.params.id!)
       const release = releaseOf(db, accountId, req.params.id!)
+      rejectProjectKeyDocLink(req)
       const name =
         typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 120) : undefined
       const demoStatus = ['pending', 'pass', 'partial', 'fail'].includes(req.body?.demo_status)
@@ -648,6 +707,7 @@ state: building
     asyncHandler((req: Request, res: Response) => {
       const accountId = projectAccountIdForPhase(req, req.params.id!)
       const phase = phaseOf(db, accountId, req.params.id!)
+      rejectProjectKeyDocLink(req)
       const title = typeof req.body?.title === 'string' ? req.body.title.trim().slice(0, 200) : ''
       if (!title) throw badRequest('title required')
       const status = ['todo', 'doing', 'testing', 'done'].includes(req.body?.status)
@@ -732,6 +792,7 @@ state: building
         )
         .get(req.params.id!, accountId) as TaskRow | undefined
       if (!task) throw notFound('task not found')
+      rejectProjectKeyDocLink(req)
       const status = ['todo', 'doing', 'testing', 'done'].includes(req.body?.status)
         ? req.body.status
         : undefined
