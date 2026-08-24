@@ -1,0 +1,30 @@
+{
+  "name": "@can-bang/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@can-bang/core": "workspace:*",
+    "bcryptjs": "3.0.3",
+    "better-sqlite3": "13.0.3",
+    "express": "4.22.2",
+    "ws": "8.21.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "9.6.0",
+    "@types/express": "4.17.25",
+    "@types/supertest": "6.0.3",
+    "@types/ws": "8.18.1",
+    "@vitest/coverage-v8": "4.1.10",
+    "supertest": "7.2.2",
+    "vitest": "4.1.10"
+  }
+}
