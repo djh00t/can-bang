@@ -200,6 +200,40 @@ describe('workspace hierarchy', () => {
     expect(doc.text).toContain(`task: ${taskId}`)
   })
 
+  it('preserves release metadata through card updates and reindexing', async () => {
+    const { agent } = await account(ctx.app, 'release-board-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'Release board' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const release = await agent.post(`/api/phases/${phaseId}/releases`).send({ name: '0.3 demo' })
+    expect(release.status).toBe(201)
+    const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({ title: 'Ship the demo' })
+    expect(task.status).toBe(201)
+    const taskId = task.body.task.id as string
+    const overview = await agent.get(`/api/projects/${pid}`)
+    const docId = overview.body.project.docId as string
+
+    const initial = await agent.get(`/api/docs/${docId}/content`)
+    expect(initial.text).toContain('  release: 0.3 demo')
+
+    const patch = await agent.patch(`/api/tasks/${taskId}`).send({ status: 'doing' })
+    expect(patch.status).toBe(200)
+    const updated = await agent.get(`/api/docs/${docId}/content`)
+    expect(updated.text).toContain('  release: 0.3 demo')
+
+    const version = updated.headers['x-doc-version'] as string
+    const put = await agent
+      .put(`/api/docs/${docId}/content`)
+      .set('if-match', version)
+      .send({ content: `${updated.text}\n` })
+    expect(put.status).toBe(200)
+    const reindexed = await agent.get(`/api/projects/${pid}`)
+    expect(reindexed.body.tasks.find((t: { id: string }) => t.id === taskId).status).toBe('doing')
+    const afterReindex = await agent.get(`/api/docs/${docId}/content`)
+    expect(afterReindex.text).toContain('  release: 0.3 demo')
+  })
+
   it('absorbs agent edits to the doc board back into tasks', async () => {
     const { agent } = await account(ctx.app, 'claim-owner')
     const pid = (await agent.post('/api/projects').send({ name: 'Claims' })).body.project
