@@ -1,15 +1,15 @@
 import request from 'supertest'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { makeCtx, account, type TestCtx } from './helpers.js'
+import { closeCtx, makeCtx, account, type TestCtx } from './helpers.js'
 import { backfillProjectDocs } from '../src/seed.js'
 
 describe('workspace hierarchy', () => {
   let ctx: TestCtx
-  beforeEach(() => {
-    ctx = makeCtx()
+  beforeEach(async () => {
+    ctx = await makeCtx()
   })
-  afterEach(() => {
-    ctx.db.close()
+  afterEach(async () => {
+    await closeCtx(ctx)
   })
 
   it('creates projects, phases, releases, tasks and returns an overview', async () => {
@@ -62,7 +62,10 @@ describe('workspace hierarchy', () => {
     const releasePatch = await agent
       .patch(`/api/releases/${releaseId}`)
       .send({ demo_status: 'pass', notes: 'all green' })
-    expect(releasePatch.status).toBe(200)
+    expect(
+      releasePatch.status,
+      `${releasePatch.status} ${releasePatch.text} ${JSON.stringify(releasePatch.headers)}`,
+    ).toBe(200)
     const taskPatch = await agent.patch(`/api/tasks/${taskId}`).send({ status: 'done' })
     expect(taskPatch.status).toBe(200)
     const overview = await agent.get(`/api/projects/${pid}`)
@@ -75,10 +78,12 @@ describe('workspace hierarchy', () => {
     const { agent } = await account(ctx.app, 'owner-matrix')
     const pid = (await agent.post('/api/projects').send({ name: 'Gamma' })).body.project
       .id as string
-    const p1 = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'MVP' })).body.phase
-      .id as string
-    const p2 = (await agent.post(`/api/projects/${pid}/phases`).send({ name: '0.2' })).body.phase
-      .id as string
+    const p1Response = await agent.post(`/api/projects/${pid}/phases`).send({ name: 'MVP' })
+    expect(p1Response.status, JSON.stringify(p1Response.body)).toBe(201)
+    const p1 = p1Response.body.phase.id as string
+    const p2Response = await agent.post(`/api/projects/${pid}/phases`).send({ name: '0.2' })
+    expect(p2Response.status, JSON.stringify(p2Response.body)).toBe(201)
+    const p2 = p2Response.body.phase.id as string
     const mkTask = (phaseId: string, title: string, feature: string, status: string) =>
       agent.post(`/api/phases/${phaseId}/tasks`).send({ title, feature, status })
     await mkTask(p1, 'a', 'Docs', 'done')
@@ -151,8 +156,12 @@ describe('workspace hierarchy', () => {
     const { agent } = await account(ctx.app, 'priority-clear')
     const pid = (await agent.post('/api/projects').send({ name: 'Priority clear' })).body.project
       .id as string
-    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
-      .phase.id as string
+    const phaseResponse = await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })
+    expect(
+      phaseResponse.status,
+      `${phaseResponse.status} ${phaseResponse.text} ${JSON.stringify(phaseResponse.headers)}`,
+    ).toBe(201)
+    const phaseId = phaseResponse.body.phase.id as string
     const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({
       title: 'Clear priority',
       priority: 'high',
@@ -327,6 +336,38 @@ describe('workspace hierarchy', () => {
     await agent.get(`/api/projects/${pid}`) // reindex
     const after = await agent.get(`/api/phases/${phaseId}/burndown?days=30`)
     expect(after.body.current).toBe(0)
+    const doneEvent = ctx.db
+      .prepare("SELECT COUNT(*) AS c FROM task_events WHERE task_id=? AND status='done'")
+      .get(taskId) as { c: number }
+    expect(doneEvent.c).toBeGreaterThan(0)
+  })
+
+  it('reindexes a doc board edit made in the same millisecond', async () => {
+    const { agent } = await account(ctx.app, 'same-tick-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'Same tick' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({ title: 'Same-tick task' })
+    const taskId = task.body.task.id as string
+    const overview = await agent.get(`/api/projects/${pid}`)
+    const docId = overview.body.project.docId as string
+    const sameTick = Date.now() + 100_000
+    ctx.db.prepare('UPDATE docs SET updated_at=? WHERE id=?').run(sameTick, docId)
+    ctx.db.prepare('UPDATE projects SET board_indexed_at=? WHERE id=?').run(sameTick, pid)
+    const doc = await agent.get(`/api/docs/${docId}/content`)
+    const card = `- [ ] Same-tick task\n  task: ${taskId}\n  phase: P1`
+    expect(doc.text).toContain(card)
+    const doneCard = card.replace('- [ ]', '- [x]')
+    const content = doc.text.replace(card, '').replace('## Done\n', `## Done\n${doneCard}\n`)
+    const put = await agent
+      .put(`/api/docs/${docId}/content`)
+      .set('if-match', doc.headers['x-doc-version'])
+      .send({ content })
+    expect(put.status).toBe(200)
+
+    const after = await agent.get(`/api/projects/${pid}`)
+    expect(after.body.tasks.find((item: { id: string }) => item.id === taskId).status).toBe('done')
     const doneEvent = ctx.db
       .prepare("SELECT COUNT(*) AS c FROM task_events WHERE task_id=? AND status='done'")
       .get(taskId) as { c: number }

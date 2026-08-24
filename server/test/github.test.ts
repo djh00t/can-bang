@@ -1,6 +1,6 @@
 import request from 'supertest'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { makeCtx, account, type TestCtx } from './helpers.js'
+import { closeCtx, makeCtx, account, type TestCtx } from './helpers.js'
 import { syncProjectGithub, issueBody, type GhClient } from '../src/github.js'
 
 function fakeGh(
@@ -26,11 +26,11 @@ function fakeGh(
 
 describe('github issues sync', () => {
   let ctx: TestCtx
-  beforeEach(() => {
-    ctx = makeCtx()
+  beforeEach(async () => {
+    ctx = await makeCtx()
   })
-  afterEach(() => {
-    ctx.db.close()
+  afterEach(async () => {
+    await closeCtx(ctx)
   })
 
   it('builds marker bodies and pushes tasks as issues', async () => {
