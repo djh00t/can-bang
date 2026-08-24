@@ -223,4 +223,46 @@ describe('workspace hierarchy', () => {
     expect(added.assignee).toBe('agent')
     expect(added.status).toBe('todo')
   })
+
+  it('records doc-driven status changes in the burndown', async () => {
+    const { agent } = await account(ctx.app, 'burn-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'Burndown' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const task = await agent
+      .post(`/api/phases/${phaseId}/tasks`)
+      .send({ title: 'Finish the release' })
+    const taskId = task.body.task.id as string
+    const before = await agent.get(`/api/phases/${phaseId}/burndown?days=30`)
+    expect(before.body.current).toBe(1)
+
+    // Agent moves the card to Done directly in the doc.
+    const overview = await agent.get(`/api/projects/${pid}`)
+    const docId = overview.body.project.docId as string
+    let content = (await agent.get(`/api/docs/${docId}/content`)).text
+    const fenceStart = content.indexOf('```board')
+    const fenceEnd = content.indexOf('```', fenceStart + 3)
+    content =
+      content.slice(0, fenceStart) +
+      '```board #tickets\n## Done\n- [x] Finish the release\n  task: ' +
+      taskId +
+      '\n  phase: P1\n## Todo\n## Doing\n## Testing\n```' +
+      content.slice(fenceEnd + 3)
+    const version = (await agent.get(`/api/docs/${docId}/content`)).headers[
+      'x-doc-version'
+    ] as string
+    const put = await agent
+      .put(`/api/docs/${docId}/content`)
+      .set('if-match', version)
+      .send({ content })
+    expect(put.status).toBe(200)
+    await agent.get(`/api/projects/${pid}`) // reindex
+    const after = await agent.get(`/api/phases/${phaseId}/burndown?days=30`)
+    expect(after.body.current).toBe(0)
+    const doneEvent = ctx.db
+      .prepare("SELECT COUNT(*) AS c FROM task_events WHERE task_id=? AND status='done'")
+      .get(taskId) as { c: number }
+    expect(doneEvent.c).toBeGreaterThan(0)
+  })
 })

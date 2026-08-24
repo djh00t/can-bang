@@ -238,6 +238,9 @@ export function reindexBoard(
         let changed = false
         if (t.status !== status) {
           db.prepare('UPDATE tasks SET status=? WHERE id=?').run(status, taskId)
+          db.prepare(
+            'INSERT INTO task_events (task_id, phase_id, status, ts) VALUES (?,?,?,?)',
+          ).run(taskId, t.phase_id, status, now())
           changed = true
         }
         if (title && title !== t.title) {
