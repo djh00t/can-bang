@@ -1,5 +1,5 @@
 import { Api } from './api.js'
-import { escapeHtml, findFences, parseChat } from './markdown.js'
+import { escapeHtml, findFences, parseChat, renderMarkdown } from './markdown.js'
 
 type Phase = {
   id: string
@@ -167,6 +167,21 @@ function openModal(opts: {
   })
 }
 
+export function renderAgentPromptModal(link: string, text: string, kickoff: string): string {
+  return `
+    <p class="muted small">Give each agent the same kickoff so they can join this project with the shared briefing.</p>
+    <div class="ws-modal-field"><span>One-line kickoff</span>
+      <textarea readonly rows="2" id="agent-kickoff">${escapeHtml(kickoff)}</textarea></div>
+    <div class="ws-modal-field"><span>Markdown URL for agents</span>
+      <input readonly value="${escapeHtml(link)}.md" /></div>
+    <div class="ws-modal-field"><span>Full briefing</span>
+      <textarea readonly rows="9" id="agent-prompt">${escapeHtml(text)}</textarea></div>
+    <div class="ws-modal-actions">
+      <button type="button" class="btn sm" id="copy-agent-kickoff">Copy kickoff</button>
+      <button type="button" class="btn sm" id="copy-agent-prompt">Copy briefing</button>
+    </div>`
+}
+
 function openInfoModal(title: string, html: string): void {
   const overlay = document.createElement('div')
   overlay.className = 'ws-modal-overlay'
@@ -183,10 +198,11 @@ function openInfoModal(title: string, html: string): void {
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) overlay.remove()
   })
-  const copyBtn = overlay.querySelector('#copy-prompt')
-  if (copyBtn) {
+  const wireCopy = (buttonSelector: string, fieldSelector: string) => {
+    const copyBtn = overlay.querySelector(buttonSelector)
+    if (!copyBtn) return
     copyBtn.addEventListener('click', async () => {
-      const ta = overlay.querySelector('#agent-prompt') as HTMLTextAreaElement | null
+      const ta = overlay.querySelector(fieldSelector) as HTMLTextAreaElement | null
       if (!ta) return
       try {
         await navigator.clipboard.writeText(ta.value)
@@ -197,6 +213,8 @@ function openInfoModal(title: string, html: string): void {
       copyBtn.textContent = 'Copied ✓'
     })
   }
+  wireCopy('#copy-agent-kickoff', '#agent-kickoff')
+  wireCopy('#copy-agent-prompt', '#agent-prompt')
 }
 
 export function agentPresenceStatus(
@@ -276,6 +294,10 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     message: string
     ts: number
     url?: string
+    ref?: string
+    projectId?: string
+    taskId?: string
+    phaseId?: string
   }[] = []
   let taskId: string | null = null
   let taskDetail: Awaited<ReturnType<Api['taskDetail']>> | null = null
@@ -617,23 +639,105 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
 
   const renderInbox = () => `
     <div class="ws-inbox panel">
-      <h3>Needs human attention</h3>
+      <h3>Needs human attention${inbox.length ? ` <span class="col-count">${inbox.length}</span>` : ''}</h3>
       ${
         inbox.length
           ? inbox
-              .slice(0, 6)
+              .slice(0, 20)
               .map(
-                (i) =>
-                  `<div class="ws-inbox-item">${
-                    i.url
-                      ? `<a href="${escapeHtml(i.url)}" target="_blank" rel="noopener">${escapeHtml(i.title)}</a>`
-                      : `<a href="/d/${i.docId}">${escapeHtml(i.title)}</a>`
-                  } <span class="tag">${escapeHtml(i.type)}</span><div class="muted small">${escapeHtml(i.message.slice(0, 90))}</div></div>`,
+                (i, idx) =>
+                  `<button class="ws-inbox-item" data-inbox-item="${idx}" title="open actions">
+                     <span class="ws-inbox-title">${escapeHtml(i.title)}${i.url ? ' ↗' : ''}</span>
+                     <span class="tag">${escapeHtml(i.type)}</span>
+                     <div class="muted small">${escapeHtml(i.message.slice(0, 90))}</div>
+                   </button>`,
               )
               .join('')
           : '<span class="muted small">Nothing needs you right now.</span>'
       }
     </div>`
+
+  const wireInboxItems = () => {
+    root.querySelectorAll<HTMLButtonElement>('[data-inbox-item]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const item = inbox[Number(b.dataset.inboxItem)]
+        if (item) openAttentionModal(item)
+      })
+    })
+  }
+
+  const openAttentionModal = (item: {
+    docId: string
+    title: string
+    type: string
+    message: string
+    url?: string
+    ref?: string
+    projectId?: string
+    taskId?: string
+    phaseId?: string
+  }) => {
+    const openHref =
+      item.type === 'pr'
+        ? null
+        : item.projectId && item.taskId && item.phaseId
+          ? `/p/${item.projectId}/phase/${item.phaseId}/task/${item.taskId}`
+          : item.projectId
+            ? `/p/${item.projectId}`
+            : `/d/${item.docId}`
+    const openLabel = item.projectId && item.taskId ? 'Open task' : 'Open doc'
+    const overlay = document.createElement('div')
+    overlay.className = 'ws-modal-overlay'
+    overlay.innerHTML = `
+      <div class="ws-modal" role="dialog" aria-modal="true" aria-label="Attention">
+        <div class="ws-modal-head"><b>${escapeHtml(item.title)}</b><button type="button" class="btn sm" data-close>×</button></div>
+        <div class="ws-modal-body">
+          <div class="muted small"><span class="tag">${escapeHtml(item.type)}</span> · ${escapeHtml(item.message)}</div>
+          <div class="ws-modal-actions">
+            ${item.url ? `<button type="button" class="btn primary" id="att-open">Open ↗</button>` : ''}
+            ${item.type !== 'pr' && openHref ? `<a class="btn" href="${escapeHtml(openHref)}">${openLabel}</a>` : ''}
+            <button type="button" class="btn" id="att-dismiss">Dismiss</button>
+            <button type="button" class="btn" data-close>Close</button>
+          </div>
+        </div>
+      </div>`
+    document.body.appendChild(overlay)
+    const close = () => overlay.remove()
+    overlay.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', close))
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close()
+    })
+    const openBtn = overlay.querySelector('#att-open')
+    if (openBtn && item.url) {
+      openBtn.addEventListener('click', () => {
+        window.open(item.url, '_blank', 'noopener')
+        close()
+      })
+    }
+    const dismissBtn = overlay.querySelector('#att-dismiss')
+    if (dismissBtn) {
+      dismissBtn.addEventListener('click', () => {
+        void api.dismissInbox({ docId: item.docId, type: item.type, ref: item.ref }).then(() => {
+          close()
+          return refreshInbox()
+        })
+      })
+    }
+  }
+
+  const refreshInbox = async () => {
+    if (!me) return
+    try {
+      inbox = (await api.inbox()).items
+    } catch {
+      return
+    }
+    const el = root.querySelector('.ws-inbox')
+    if (el) {
+      el.outerHTML = renderInbox()
+      wireInboxItems()
+    }
+  }
 
   const renderMain = (phase: Phase | null, phaseTasks: ProjectData['tasks']) => {
     if (!me) {
@@ -645,6 +749,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       return renderGlobalDashboard()
     }
     if (detail === 'release' && releaseDetail) return renderReleaseDetail()
+    if (taskId && taskDetail) return renderTaskDetail()
     return `
       <div class="ws-project-head">
         <div>
@@ -660,14 +765,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       </div>
       <div class="ws-project-body">
         ${view === 'overview' ? renderOverview() : view === 'pipeline' ? renderPipeline(phase, phaseTasks) : renderMatrix()}
-      </div>
-      ${
-        taskId
-          ? `<div class="ws-drawer" role="dialog" aria-label="Task detail">
-              ${renderTaskDrawer()}
-            </div>`
-          : ''
-      }`
+      </div>`
   }
 
   const renderPipeline = (phase: Phase | null, phaseTasks: ProjectData['tasks']) => {
@@ -687,6 +785,9 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
             ? `<div class="ws-filter-row"><span class="tag">Filtered · ${escapeHtml(phase.name)}</span><button class="btn sm" data-clear-phase>All phases</button></div>`
             : '<div class="ws-filter-row"><span class="tag">All phases</span></div>'
         }
+        <div class="panel ws-burndown-top">
+          ${renderBurndown(phase)}
+        </div>
         <div class="ws-pipeline">
         <div class="ws-board">
           ${columns
@@ -709,21 +810,6 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
             .join('')}
         </div>
         <div class="ws-right">
-          <div class="panel">
-            <h3>Releases / demos</h3>
-            ${data!.releases
-              .map(
-                (rl) =>
-                  `<button class="ws-release ${rl.phaseId === phaseId ? 'on' : ''}" data-release="${rl.id}">
-                     <span class="status-pill sp-${rl.demo_status}">${rl.demo_status}</span>
-                     <span>${escapeHtml(rl.name)}</span></button>`,
-              )
-              .join('')}
-          </div>
-          <div class="panel">
-            <h3>Burndown · ${phase ? escapeHtml(phase.name) : 'all phases'}</h3>
-            ${renderBurndown(phase)}
-          </div>
           ${renderAgentsPanel()}
           <button class="btn sm block" id="add-task">+ Task in ${phase ? escapeHtml(phase.name) : 'phase'}</button>
         </div>
@@ -891,24 +977,9 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
         <button class="btn sm" id="create-project-hq">Create HQ doc + prompt</button></div>`
     }
     return `<div class="panel"><h3>Agent onboarding</h3>
-      ${
-        agentPrompt
-          ? `<div class="ws-modal-field"><span>One-line kickoff (paste into each agent)</span>
-              <textarea readonly rows="2" id="agent-kickoff">${escapeHtml(
-                `Read ${location.origin}/agents.md, then work the doc at ${agentPrompt.link} — follow AGENTS: READ THIS FIRST.`,
-              )}</textarea></div>
-             <div class="ws-modal-field"><span>Markdown URL for agents (curl / Codex / Claude fetch this)</span>
-              <input readonly value="${escapeHtml(agentPrompt.link)}.md" /></div>
-             <div class="ws-modal-field"><span>Full briefing (markdown — also added to the doc)</span>
-              <textarea readonly rows="9" id="agent-prompt">${escapeHtml(agentPrompt.text)}</textarea></div>
-             <div class="ws-modal-actions">
-               <button class="btn sm primary" id="copy-agent-kickoff">Copy kickoff</button>
-               <button class="btn sm" id="copy-agent-prompt">Copy briefing</button>
-             </div>
-             <div class="muted small">Agents read markdown: <code>${escapeHtml(agentPrompt.link)}.md</code> or the <code>/agent</code> handoff.</div>`
-          : `<span class="muted small">Mint an edit link to the project doc and generate the onboarding prompt for your Codex instances.</span>
-             <button class="btn sm" id="gen-agent-prompt">Generate agent prompt + link</button>`
-      }
+      <span class="muted small">Open a ready-to-paste kickoff, markdown link, and full briefing for a new agent.</span>
+      <button class="btn sm primary" id="onboard-agent">Onboard Agent</button>
+      ${agentPrompt ? '<div class="muted small">Prompt link ready for this project.</div>' : ''}
       <div class="ws-modal-actions" style="margin-top:6px"><button class="btn sm" id="add-agent-briefing">Add AGENTS briefing to project doc</button></div>
       <div class="muted small">Paste the same prompt into each Codex instance — they self-assign roles (one agent per role).</div></div>`
   }
@@ -948,11 +1019,12 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   const renderBurndown = (phase: Phase | null) => {
     const b = phase ? burndownCache.get(phase.id) : undefined
     const counts = phase ? phase.counts : { done: data!.counts.done, total: data!.counts.total }
-    if (!b || !b.points.length) {
-      const pct = counts.total ? Math.round((counts.done / counts.total) * 100) : 0
-      return `<div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
-        <div class="muted small">${counts.done}/${counts.total} tasks done (${pct}%)${phase ? '' : ' · all phases'}</div>`
-    }
+    const pct = counts.total ? Math.round((counts.done / counts.total) * 100) : 0
+    const heading = `<div class="ws-burndown-top-head"><h3>Burndown${phase ? ` · ${escapeHtml(phase.name)}` : ' · all phases'}</h3></div>`
+    const bar = `<div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>`
+    const summary = `<div class="muted small">${counts.done}/${counts.total} tasks done (${pct}%)${phase ? '' : ' · all phases'}</div>`
+    if (!b || !b.points || b.points.length < 2)
+      return `<div class="ws-burndown-top-row">${heading}${summary}</div>${bar}`
     const pts = b.points
     const max = Math.max(1, ...pts.map((p) => p.remaining))
     const w = 280
@@ -964,51 +1036,78 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       )
       .join(' ')
     return `
+      <div class="ws-burndown-top-row">${heading}${summary}</div>
+      ${bar}
       <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" role="img" aria-label="Burndown: remaining tasks over time">
         <polyline points="${coords}" fill="none" stroke="#12b76a" stroke-width="2" />
       </svg>
       <div class="muted small">${b.current} remaining of ${b.total} · ${pts[0]?.date} → ${pts[pts.length - 1]?.date}</div>`
   }
 
-  const renderTaskDrawer = () => {
+  const renderTaskDetail = () => {
     const t = taskDetail
     if (!t) return '<span class="muted">loading…</span>'
+    const release = data?.releases.find((r) => r.phaseId === t.phase.id) ?? null
+    const specSections: [string, string | null][] = [
+      ['Acceptance criteria', t.task.acceptance],
+      ['Context', t.task.context],
+      ['Done means', t.task.done_means],
+      ['Description', t.task.description],
+      ['Blockers', t.task.blockers],
+    ]
     return `
-      <div class="ws-drawer-head">
-        <b>${escapeHtml(t.task.title)}</b>
-        <button class="btn sm" data-close-task aria-label="Close task detail">×</button>
-      </div>
-      <div class="ws-drawer-body">
-        <div class="row"><span>Status</span>
-          <span class="ws-status-btns">
-            ${['todo', 'doing', 'testing', 'done']
-              .map(
-                (s) =>
-                  `<button class="btn sm ${t.task.status === s ? 'primary' : ''}" data-set-status="${s}">${s}</button>`,
-              )
-              .join('')}
-          </span>
+      <div class="ws-task-detail panel">
+        <button class="btn sm" data-close-task>← Back</button>
+        <h2>${escapeHtml(t.task.title)}</h2>
+        <div class="ws-task-meta">
+          <span class="chip">${escapeHtml(t.task.status)}</span>
+          ${t.task.priority ? `<span class="chip priority-${escapeHtml(t.task.priority)}">${escapeHtml(t.task.priority)}</span>` : ''}
+          ${t.task.assignee ? `<span class="chip assignee">@${escapeHtml(t.task.assignee)}</span>` : ''}
+          ${t.task.feature ? `<span class="chip tag">${escapeHtml(t.task.feature)}</span>` : ''}
+          <span class="muted small">${escapeHtml(t.project.name)} · ${escapeHtml(t.phase.name)}${release ? ` · 🚀 ${escapeHtml(release.name)}` : ''}</span>
         </div>
-        <div class="row"><span>Phase</span><b>${escapeHtml(t.phase.name)}</b></div>
-        <div class="row"><span>Project</span><b>${escapeHtml(t.project.name)}</b></div>
-        ${t.task.assignee ? `<div class="row"><span>Assignee</span><b>@${escapeHtml(t.task.assignee)}</b></div>` : ''}
-        ${t.task.feature ? `<div class="row"><span>Feature</span><b>${escapeHtml(t.task.feature)}</b></div>` : ''}
-        ${t.task.priority ? `<div class="row"><span>Priority</span><b>${escapeHtml(t.task.priority)}</b></div>` : ''}
-        ${t.task.done_means ? `<div class="ws-field"><span class="muted small">done-means</span><div>${escapeHtml(t.task.done_means)}</div></div>` : ''}
-        ${t.task.description ? `<div class="ws-field"><span class="muted small">description</span><div>${escapeHtml(t.task.description)}</div></div>` : ''}
-        ${t.task.blockers ? `<div class="ws-field"><span class="muted small">blockers</span><div>${escapeHtml(t.task.blockers)}</div></div>` : ''}
+        <div class="ws-task-actions">
+          <span class="muted small">Status</span>
+          ${['todo', 'doing', 'testing', 'done']
+            .map(
+              (s) =>
+                `<button class="btn sm ${t.task.status === s ? 'primary' : ''}" data-set-status="${s}">${s}</button>`,
+            )
+            .join('')}
+        </div>
+        <div class="ws-task-body">
+          ${
+            specSections
+              .filter(([, v]) => v)
+              .map(
+                ([label, v]) => `
+                <section class="ws-field">
+                  <h4>${label}</h4>
+                  <div class="markdown-body">${renderMarkdown(v!)}</div>
+                </section>`,
+              )
+              .join('') ||
+            '<p class="muted">No spec written yet. Add acceptance criteria so agents know what “done” means.</p>'
+          }
+          <section class="ws-field">
+            <h4>Linked doc</h4>
+            ${t.task.docId ? `<a class="btn sm" href="/d/${encodeURIComponent(t.task.docId)}">Open doc · ${escapeHtml(t.task.docTitle ?? 'linked')}</a>` : '<span class="muted">None linked</span>'}
+          </section>
+        </div>
         <div class="ws-drawer-actions">
-          ${t.task.docId ? `<a class="btn sm" href="/d/${encodeURIComponent(t.task.docId)}">Open doc · ${escapeHtml(t.task.docTitle ?? 'linked')}</a>` : ''}
           <button class="btn sm" data-link-task-doc>${t.task.docId ? 'Change doc' : 'Link doc'}</button>
           <button class="btn sm" data-edit-task="title">Rename</button>
           <button class="btn sm" data-edit-task="assignee">Assignee</button>
           <button class="btn sm" data-edit-task="feature">Feature</button>
           <button class="btn sm" data-edit-task="priority">Priority</button>
-          <button class="btn sm" data-edit-task="done_means">done-means</button>
+          <button class="btn sm" data-edit-task="done_means">Done means</button>
+          <button class="btn sm" data-edit-task="acceptance">Acceptance</button>
+          <button class="btn sm" data-edit-task="context">Context</button>
           <button class="btn sm" data-edit-task="description">Description</button>
           <button class="btn sm" data-edit-task="blockers">Blockers</button>
         </div>
-      </div>`
+      </div>
+    `
   }
 
   const renderReleaseDetail = () => {
@@ -1137,18 +1236,10 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     })
     document.getElementById('enable-github')?.addEventListener('click', () => void enableGithub())
     document.getElementById('sync-github')?.addEventListener('click', () => void runGithubSync())
-    document
-      .getElementById('gen-agent-prompt')
-      ?.addEventListener('click', () => void genAgentPrompt())
+    document.getElementById('onboard-agent')?.addEventListener('click', () => void onboardAgent())
     document
       .getElementById('create-project-hq')
       ?.addEventListener('click', () => void createProjectHq())
-    document
-      .getElementById('copy-agent-prompt')
-      ?.addEventListener('click', () => void copyAgentPrompt())
-    document
-      .getElementById('copy-agent-kickoff')
-      ?.addEventListener('click', () => void copyAgentKickoff())
     document
       .getElementById('add-agent-briefing')
       ?.addEventListener('click', () => void addAgentBriefing())
@@ -1161,6 +1252,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     document.querySelectorAll<HTMLButtonElement>('[data-demo-status]').forEach((b) => {
       b.addEventListener('click', () => void setDemoStatus(b.dataset.demoStatus!))
     })
+    wireInboxItems()
     document
       .getElementById('run-release-review')
       ?.addEventListener('click', () => void runReleaseReview())
@@ -1407,6 +1499,11 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
 4. Never grade your own work: move finished cards to Testing, not Done. The tester re-verifies with fresh eyes.
 5. Post progress to chat; set the status to awaiting-human only when you need the human.
 6. Don't stop: card done → pull the next one. You're finished when the human says so.
+7. Build in your own git worktree — git worktree add ../can-bang-<role> -b <role>/<card>; never commit on main. Once your PR is pushed, remove the worktree (git worktree remove ../can-bang-<role>) — never leave worktrees behind. Use Conventional Commits (feat:/fix:/refactor:/docs:/chore:/test:), one logical change per commit, never commit secrets, and never claim evidence you did not run.
+8. Open one PR per card against main when it is complete: title = the commit subject, body = what/why/evidence + card reference, ready for review (not draft). Never approve or merge your own PR — that is the human's call. Move the card to Testing and add the PR link as evidence.
+9. Fetch the helper skills over HTTP and follow them: GET /skills/commit-helper/manifest?v=1 and /skills/pr-helper/manifest?v=1 — verify each sha256, read every file, and do not install them into your config.
+10. Loop, and ask only when you must: never pause after one card — pull the next. Do not ask for permission for in-scope work. When a human decision is genuinely required, create an ASK (POST /api/docs/<id>/asks with the decision) or set status awaiting-human with a plain note, then continue on other cards; the human acts on the Needs Human Attention queue.
+11. Start each task with a cleared context: when you claim a card, close the previous task's context, create a fresh worktree for the card, and re-read the card, its done-means, and the current repo state from scratch. Do not carry assumptions or partial work from earlier tasks.
 
 ## Roster (${name})
 Role | You own | Claimed by
@@ -1424,11 +1521,17 @@ ${data!.project.description ?? 'Ship the current phase, then the next.'}`
 
 ` + agentBriefing()
 
-  const genAgentPrompt = async () => {
+  const onboardAgent = async () => {
     if (!data?.project.docId) return
-    const s = await api.share(data.project.docId, 'edit')
-    agentPrompt = { link: s.share.url, text: buildAgentPrompt(s.share.url) }
-    render()
+    if (!agentPrompt) {
+      const s = await api.share(data.project.docId, 'edit')
+      agentPrompt = { link: s.share.url, text: buildAgentPrompt(s.share.url) }
+    }
+    const kickoff = `Read ${location.origin}/agents.md, then work the project doc at ${agentPrompt.link} — follow AGENTS: READ THIS FIRST.`
+    openInfoModal(
+      'Onboard Agent',
+      renderAgentPromptModal(agentPrompt.link, agentPrompt.text, kickoff),
+    )
   }
 
   const createProjectHq = async () => {
@@ -1440,28 +1543,6 @@ ${data!.project.description ?? 'Ship the current phase, then the next.'}`
     agentPrompt = { link: s.share.url, text: buildAgentPrompt(s.share.url) }
     await loadProject()
     render()
-  }
-
-  const copyAgentPrompt = async () => {
-    const ta = document.getElementById('agent-prompt') as HTMLTextAreaElement | null
-    if (!ta) return
-    try {
-      await navigator.clipboard.writeText(ta.value)
-    } catch {
-      ta.select()
-      document.execCommand('copy')
-    }
-  }
-
-  const copyAgentKickoff = async () => {
-    const ta = document.getElementById('agent-kickoff') as HTMLTextAreaElement | null
-    if (!ta) return
-    try {
-      await navigator.clipboard.writeText(ta.value)
-    } catch {
-      ta.select()
-      document.execCommand('copy')
-    }
   }
 
   const addAgentBriefing = async () => {
@@ -1516,6 +1597,7 @@ ${data!.project.description ?? 'Ship the current phase, then the next.'}`
   detail = route.detail
 
   await load()
+  setInterval(() => void refreshInbox(), 60_000)
   if (projectId) {
     await loadProject()
     if (detail === 'release' && releaseId) releaseDetail = await api.releaseDetail(releaseId)

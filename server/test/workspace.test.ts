@@ -251,6 +251,46 @@ describe('workspace hierarchy', () => {
     expect(added.status).toBe('todo')
   })
 
+  it('indexes multiple agent-added cards with their own task markers', async () => {
+    const { agent } = await account(ctx.app, 'multi-card-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'Multi card sync' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const overview = await agent.get(`/api/projects/${pid}`)
+    const docId = overview.body.project.docId as string
+    const original = (await agent.get(`/api/docs/${docId}/content`)).text
+    const fenceStart = original.indexOf('```board')
+    const fenceEnd = original.indexOf('```', fenceStart + 3)
+    const content =
+      original.slice(0, fenceStart) +
+      '```board #tickets\n## Todo\n- [ ] First agent card\n  phase: P1\n- [ ] Second agent card\n  phase: P1\n## Doing\n## Testing\n## Done\n```' +
+      original.slice(fenceEnd + 3)
+    const version = (await agent.get(`/api/docs/${docId}/content`)).headers[
+      'x-doc-version'
+    ] as string
+    const put = await agent
+      .put(`/api/docs/${docId}/content`)
+      .set('if-match', version)
+      .send({ content })
+    expect(put.status).toBe(200)
+
+    const after = await agent.get(`/api/projects/${pid}`)
+    const board = (await agent.get(`/api/docs/${docId}/content`)).text
+    const firstTaskId = /- \[ \] First agent card\n  task: ([^\n]+)/.exec(board)?.[1]
+    const secondTaskId = /- \[ \] Second agent card\n  task: ([^\n]+)/.exec(board)?.[1]
+    expect(firstTaskId).toBeTruthy()
+    expect(secondTaskId).toBeTruthy()
+    expect(firstTaskId).not.toBe(secondTaskId)
+    expect(after.body.tasks.find((task: { id: string }) => task.id === firstTaskId).title).toBe(
+      'First agent card',
+    )
+    expect(after.body.tasks.find((task: { id: string }) => task.id === secondTaskId).title).toBe(
+      'Second agent card',
+    )
+    void phaseId
+  })
+
   it('records doc-driven status changes in the burndown', async () => {
     const { agent } = await account(ctx.app, 'burn-owner')
     const pid = (await agent.post('/api/projects').send({ name: 'Burndown' })).body.project
@@ -291,5 +331,120 @@ describe('workspace hierarchy', () => {
       .prepare("SELECT COUNT(*) AS c FROM task_events WHERE task_id=? AND status='done'")
       .get(taskId) as { c: number }
     expect(doneEvent.c).toBeGreaterThan(0)
+  })
+
+  it('round-trips acceptance and context through the API and the doc board', async () => {
+    const { agent } = await account(ctx.app, 'spec-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'Spec' })).body.project.id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({
+      title: 'Spec task',
+      acceptance: 'Given the API key is set, the sync runs and posts a PR link',
+      context: 'Agents must clear prior task context before claiming this card.',
+    })
+    expect(task.status).toBe(201)
+    const taskId = task.body.task.id as string
+
+    const detail = await agent.get(`/api/tasks/${taskId}`)
+    expect(detail.body.task.acceptance).toContain('API key is set')
+    expect(detail.body.task.context).toContain('clear prior task context')
+
+    const overview = await agent.get(`/api/projects/${pid}`)
+    const fromList = overview.body.tasks.find((t: { id: string }) => t.id === taskId)
+    expect(fromList.acceptance).toContain('API key is set')
+    expect(fromList.context).toContain('clear prior task context')
+
+    // The doc board fence is the record: both fields must be mirrored into it.
+    const docId = overview.body.project.docId as string
+    const doc0 = await agent.get(`/api/docs/${docId}/content`)
+    expect(doc0.text).toContain('acceptance: Given the API key is set')
+    expect(doc0.text).toContain('context: Agents must clear prior task context')
+
+    // Patching through the API updates the doc fence too.
+    const patch = await agent.patch(`/api/tasks/${taskId}`).send({
+      acceptance: 'Given the API key is set, the sync posts exactly one PR per card',
+      context: null,
+    })
+    expect(patch.status).toBe(200)
+    const detail2 = await agent.get(`/api/tasks/${taskId}`)
+    expect(detail2.body.task.acceptance).toContain('exactly one PR per card')
+    expect(detail2.body.task.context).toBeNull()
+    const doc1 = await agent.get(`/api/docs/${docId}/content`)
+    expect(doc1.text).toContain(
+      'acceptance: Given the API key is set, the sync posts exactly one PR per card',
+    )
+    expect(doc1.text).not.toContain('context: Agents must clear prior task context')
+
+    // An agent editing the fence directly is absorbed back into the task row.
+    let content = doc1.text
+    content = content.replace(
+      '  acceptance: Given the API key is set, the sync posts exactly one PR per card\n',
+      '  acceptance: Given the API key is set, the sync posts exactly one PR per card\n  context: Claimed after the previous card context is closed.\n',
+    )
+    const version = (await agent.get(`/api/docs/${docId}/content`)).headers[
+      'x-doc-version'
+    ] as string
+    const put = await agent
+      .put(`/api/docs/${docId}/content`)
+      .set('if-match', version)
+      .send({ content })
+    expect(put.status).toBe(200)
+    const after = await agent.get(`/api/projects/${pid}`)
+    const refreshed = after.body.tasks.find((t: { id: string }) => t.id === taskId)
+    expect(refreshed.context).toContain('Claimed after the previous card context is closed')
+  })
+
+  it('mirrors multiline spec fields through the board fence without truncation', async () => {
+    const { agent } = await account(ctx.app, 'multiline-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'Multiline' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const acceptance =
+      'Given the API key is set\nthe sync posts exactly one PR per card\nand never self-merges'
+    const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({
+      title: 'Multiline spec',
+      acceptance,
+      context: 'Claimed after the previous card context is closed',
+    })
+    expect(task.status).toBe(201)
+    const taskId = task.body.task.id as string
+
+    // The fence stores continuation lines under the same field.
+    const overview = await agent.get(`/api/projects/${pid}`)
+    const docId = overview.body.project.docId as string
+    const doc0 = await agent.get(`/api/docs/${docId}/content`)
+    expect(doc0.text).toContain(
+      '  acceptance: Given the API key is set\n  the sync posts exactly one PR per card\n  and never self-merges',
+    )
+
+    const detail = await agent.get(`/api/tasks/${taskId}`)
+    expect(detail.body.task.acceptance).toBe(acceptance)
+
+    // A reindex (project fetch) must not truncate the multiline value.
+    const overview2 = await agent.get(`/api/projects/${pid}`)
+    const fromList = overview2.body.tasks.find((t: { id: string }) => t.id === taskId)
+    expect(fromList.acceptance).toBe(acceptance)
+
+    // An agent editing the fence with continuation lines is absorbed back intact.
+    let content = (await agent.get(`/api/docs/${docId}/content`)).text
+    content = content.replace(
+      '  and never self-merges\n',
+      '  and never self-merges\n  or merges someone else\u2019s PR\n',
+    )
+    const version = (await agent.get(`/api/docs/${docId}/content`)).headers[
+      'x-doc-version'
+    ] as string
+    const put = await agent
+      .put(`/api/docs/${docId}/content`)
+      .set('if-match', version)
+      .send({ content })
+    expect(put.status).toBe(200)
+    const after = await agent.get(`/api/projects/${pid}`)
+    const refreshed = after.body.tasks.find((t: { id: string }) => t.id === taskId)
+    expect(refreshed.acceptance).toBe(
+      'Given the API key is set\nthe sync posts exactly one PR per card\nand never self-merges\nor merges someone else’s PR',
+    )
   })
 })

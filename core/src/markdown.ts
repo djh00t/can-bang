@@ -105,9 +105,16 @@ export function parseBoard(body: string): { columns: string[]; cards: BoardCard[
       const due = /!(\d{4}-\d{2}-\d{2})/.exec(text)?.[1]
       const fields: Record<string, string> = {}
       let j = i + 1
+      let lastKey: string | null = null
       while (j < lines.length && /^\s+/.test(lines[j]!) && !/^-\s+\[/.test(lines[j]!.trim())) {
-        const kv = /^\s*([A-Za-z0-9 _-]+?):\s*(.+)$/.exec(lines[j]!)
-        if (kv) fields[kv[1]!.trim()] = kv[2]!.trim()
+        const kv = /^\s*([A-Za-z0-9_-]+):\s*(.*)$/.exec(lines[j]!)
+        if (kv) {
+          const key = kv[1]!.trim()
+          fields[key] = kv[2]!.trim()
+          lastKey = key
+        } else if (lastKey && fields[lastKey]) {
+          fields[lastKey] = `${fields[lastKey]}\n${lines[j]!.trim()}`
+        }
         j++
       }
       cards.push({ column, state, text, assignees, tags, due, fields, line: i })

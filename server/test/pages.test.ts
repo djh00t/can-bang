@@ -163,6 +163,23 @@ describe('pages, handoff, and 0.3 extras', () => {
     expect(releases.body.releases.length).toBe(1)
     const diff = await agent.get(`/api/folders/${folderId}/releases/1/diff/1`)
     expect(diff.status).toBe(200)
+
+    // A new release must snapshot the folder's current docs, not copy v1.
+    const template = await agent
+      .post('/api/docs')
+      .send({ title: 'PULL_REQUEST_TEMPLATE.md', content: '## Summary\n' })
+    await agent.post(`/api/docs/${template.body.doc.id}/move`).send({ folderId })
+    const release2 = await agent
+      .post(`/api/folders/${folderId}/releases`)
+      .send({ notes: 'add template' })
+    expect(release2.status).toBe(201)
+    const manifest2 = await request(ctx.app).get(`/skills/${slug}/manifest?v=2`)
+    expect(manifest2.body.version).toBe(2)
+    const paths2 = manifest2.body.files.map((f: { path: string }) => f.path) as string[]
+    expect(paths2).toContain('SKILL.md')
+    expect(paths2).toContain('scripts/run.js')
+    expect(paths2).toContain('PULL_REQUEST_TEMPLATE.md')
+
     const rate = await agent.post(`/api/skills/${slug}/rate`).send({ stars: 5 })
     expect(rate.status).toBe(200)
   })

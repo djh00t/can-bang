@@ -1,5 +1,7 @@
 import type { Request } from 'express'
 import { now, randomId, secret } from '@can-bang/core'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Db } from './db.js'
 import { bumpContent } from './db.js'
 import type { AppServices } from './service.js'
@@ -15,6 +17,310 @@ interface SeedSkill {
 }
 
 const SKILLS: SeedSkill[] = [
+  {
+    slug: 'commit-helper',
+    name: 'Commit Helper',
+    category: 'developer',
+    description:
+      'Enforces the CanBang/Brute commit business rules: deterministic conventional commits, mandatory Refs/Version-Impact, evidence, no secrets, worktree-only commits.',
+    files: [
+      {
+        path: 'SKILL.md',
+        content: `---
+name: commit-helper
+description: Brute delivery workflow skill for commit helper, served by CanBang.
+---
+
+# Commit Helper Skill
+
+## Description
+
+Use this skill whenever creating, amending, reviewing, or planning commits. It enforces deterministic Conventional Commits, issue traceability, validation evidence, changelog quality, release-note quality, and SemVer-compatible history.
+
+## Template
+
+Fetch COMMIT_TEMPLATE.md from this skill and use it as the commit message
+skeleton. Replace every <...> placeholder, keep Refs: and Version-Impact:
+mandatory, and include BREAKING CHANGE: only when the change is breaking (then
+it is mandatory). The template IS the required commit format.
+
+## Before committing
+
+Run \`make check\` (\`rtk make check\` where the Brute runner is installed).
+Resolve all warnings and errors before committing. Do not commit if it fails
+unless the user explicitly asks for a checkpoint commit; if so, state the
+failing validation in the commit body.
+
+## Commit sizing
+
+Prefer one logical change per commit and one file per commit. A commit may
+include multiple files when splitting would create an invalid, unbuildable,
+misleading, or non-reviewable intermediate state (manifest + lockfile,
+schema/contract + generated artifact, migration + test, implementation +
+coupled test/fixture, public API change + type update, config + generated
+output). When a commit includes multiple files, the body must explain why they
+are coupled.
+
+## Output rules
+
+- Output only the commit message.
+- Summary must be imperative, lowercase after the type/scope, and <= 72 chars.
+- Bullets must be specific and factual.
+- Every commit must include issue traceability (CanBang card id or issue number).
+- Do not invent test evidence; if missing, write \`not run\` and why.
+
+## Type selection
+
+Highest-impact accurate type:
+
+security > fix > feat > perf > schema > config > deps > docs > test > ci > build > infra > refactor > style > chore
+
+## Format
+
+\`\`\`text
+<type>(<scope>)<optional !>: <imperative summary>
+
+- <what changed>
+- <why it changed>
+- <impact>
+- <test evidence>
+- <why multiple files are coupled, if more than one file is included>
+
+Refs: <issue ids>
+Version-Impact: <none|patch|minor|major|unknown>
+BREAKING CHANGE: <required only if breaking_change is true>
+\`\`\`
+
+## Rules
+
+- Never commit secrets, keys, share URLs, or credentials.
+- Work only in your own worktree (git worktree add ../can-bang-<role> -b <role>/<card>); never commit on main.
+- Once your PR is pushed, remove the worktree (git worktree remove ../can-bang-<role>); never leave worktrees behind.
+
+## Before pushing to origin
+
+Run \`make check\` and \`make quality-gates\` (\`rtk make check\` /
+\`rtk make quality-gates\` where the Brute runner is installed). If either
+fails or reports warnings, stop, fix, commit the fix, and restart.
+`,
+      },
+      {
+        path: 'COMMIT_TEMPLATE.md',
+        content: `<type>(<scope>)<optional !>: <imperative summary, lowercase after type/scope, <=72 chars>
+
+- <what changed>
+- <why it changed>
+- <impact>
+- <test evidence>
+- <why multiple files are coupled, if more than one file is included>
+
+Refs: <issue ids / CanBang card ids>
+Version-Impact: <none|patch|minor|major|unknown>
+BREAKING CHANGE: <required only if breaking_change is true>
+`,
+      },
+    ],
+    notes: 'commit rules + message template for agents',
+  },
+  {
+    slug: 'pr-helper',
+    name: 'PR Helper',
+    category: 'developer',
+    description:
+      'Opens and manages pull requests for CanBang cards using the Brute PR body template: one PR per card, evidence in the body, no self-approve/merge.',
+    files: [
+      {
+        path: 'SKILL.md',
+        content: `---
+name: pr-helper
+description: Brute delivery workflow skill for pr helper, served by CanBang.
+---
+
+# PR Helper Skill
+
+## Description
+
+Use this skill when preparing, opening, updating, or reviewing a pull request.
+
+## Template
+
+Fetch PULL_REQUEST_TEMPLATE.md from this skill and use it as the body skeleton.
+Copy it verbatim, fill every section, and never delete a section. If a section
+has no content, write \`Not provided\` and mark missing required evidence as a
+blocker. The template IS the required body format.
+
+## Pull request policy
+
+Do not create draft PRs. Never approve PRs. Never merge PRs.
+
+Open a normal PR only when the branch is ready for review, or when the user
+explicitly asks for an early review PR.
+
+Every PR must have a Conventional Commit-style subject and a complete markdown
+body. Write the body to a file using the PULL_REQUEST_TEMPLATE.md skeleton,
+validate every required section is present, pass it with
+\`gh pr create --title ... --body-file ...\` (or \`gh pr edit\`), then read the
+PR back with \`gh pr view --json title,body,url\` and verify the stored body is
+non-empty and contains every required section. Never rely on stdin/heredocs or
+a successful exit code as proof.
+
+## Agent / Thread (body preface)
+
+Start the body with an Agent / Thread section: session id or agent name, title,
+working directory, Brute version, Brute URL, CanBang doc URL, and identity
+provenance. When the Brute MCP \`brute_whoami\` is available, use its
+session_id/title/url/cwd/version/provenance as canonical and include
+\`codex_url\` only when verified (else null). If unavailable or
+\`CALLER_UNRESOLVED\`, write your agent name, repo path, and CanBang doc URL,
+and mark provenance as unverified.
+
+## Body must include
+
+Agent / Thread · Summary · Conventional Commit Breakdown · Release Notes
+Draft · Behaviour Changes · API / Schema / Contract Changes · Testing Evidence ·
+Coverage Evidence · Quality Gate Evidence · Demo Evidence · Versioning / SemVer
+Impact · Risk and Rollback · Operational Notes · Linked Work · Reviewer
+Checklist · Adversarial Review Result.
+
+## Evidence rules
+
+- Do not invent test results; missing evidence is written \`Not provided\` and
+  marked as a blocker.
+- UI changes MUST include annotated screenshots with the changed area circled
+  in red; store under docs/screenshots/{pr_id}/ and use URLs that resolve.
+- CLI changes MUST include the actual command and output in a fenced shell block.
+- Breaking changes must be impossible to miss.
+- If the read-back title or body is empty, incomplete, or missing required
+  sections, fix the PR immediately with \`gh pr edit --body-file ...\` and
+  verify it again before handoff.
+
+## Title
+
+Use Conventional Commit style: \`<type>(<scope>): <summary>\`. Pick the PR type
+from the highest-impact included commit:
+
+security > fix > feat > perf > schema > config > deps > docs > test > ci > build > infra > refactor > style > chore
+
+## Completion
+
+- Move the card to Testing and add the PR link as evidence.
+- After pushing the PR, remove your worktree (git worktree remove ../can-bang-<role>); never leave worktrees behind.
+- If CI fails, fix and re-run before asking for review.
+- Never approve or merge your own PR.
+- If a human decision is needed, create an ASK or set awaiting-human instead of stopping.
+`,
+      },
+      {
+        path: 'PULL_REQUEST_TEMPLATE.md',
+        content: `## Agent / Thread
+
+- Session ID: {session_id}
+- Title: {codex_thread_name}
+- CWD: {codex_cwd}
+- Brute version: {brute_version}
+- Brute URL: {brute_url}
+- Codex URL: {codex_url}
+- Identity provenance: {identity_provenance}
+
+## Summary
+
+- ...
+
+## Conventional Commit Breakdown
+
+| Commit | Type | Scope | Issue | Version impact | Notes |
+|---|---|---|---|---|---|
+| ... | ... | ... | ... | ... | ... |
+
+## Release Notes Draft
+
+### Customer-facing
+
+- ...
+
+### Internal / operational
+
+- ...
+
+## Behaviour Changes
+
+- ...
+
+## API / Schema / Contract Changes
+
+- ...
+
+## Testing Evidence
+
+- \`make check\`: Not provided
+- Targeted tests: Not provided
+
+## Coverage Evidence
+
+Not provided
+
+## Quality Gate Evidence
+
+- \`make quality-gates\`: Not provided
+
+## Demo Evidence
+
+### UI Evidence
+
+- Screenshots: Not applicable. UI changes MUST include red-circled annotated screenshots under \`docs/screenshots/{pr_id}/\`.
+- Screenshot image URLs must be uploaded and reachable before submission.
+- Video: Not applicable.
+- Browser/runtime: Not applicable.
+
+### CLI Evidence
+
+\`\`\`shell
+# CLI changes MUST include the exact command and captured output here.
+\`\`\`
+
+## Versioning / SemVer Impact
+
+Recommended impact: \`none | patch | minor | major | unknown\`
+
+Reason:
+
+## Risk and Rollback
+
+- Risk:
+- Rollback:
+
+## Operational Notes
+
+- ...
+
+## Linked Work
+
+- Refs:
+
+## Reviewer Checklist
+
+- [ ] Acceptance criteria satisfied
+- [ ] Tests are meaningful
+- [ ] \`make check\` passed
+- [ ] \`make quality-gates\` passed
+- [ ] Coverage evidence reviewed
+- [ ] Demo evidence reviewed
+- [ ] UI-related PRs include reachable marked-up screenshots
+- [ ] CLI-related PRs include captured output in a \`shell\` block
+- [ ] Adversarial review completed
+- [ ] Version impact is correct
+- [ ] Rollback plan is credible
+
+## Adversarial Review Result
+
+- Verdict: Not provided
+- Blocking findings: Not provided
+- Follow-ups: Not provided
+`,
+      },
+    ],
+    notes: 'PR workflow rules + body template for agents',
+  },
   {
     slug: 'sprint-review',
     name: 'Sprint Review',
@@ -129,6 +435,14 @@ change that affects behavior.
   },
 ]
 
+function skillFile(slug: string, path: string, fallback: string): string {
+  for (const base of [process.cwd(), join(process.cwd(), '..')]) {
+    const p = join(base, 'skills', slug, path)
+    if (existsSync(p)) return readFileSync(p, 'utf8')
+  }
+  return fallback
+}
+
 /** Seed starter skills once per instance under the first account. */
 export function seedSkillsIfFirst(
   services: AppServices,
@@ -155,11 +469,12 @@ export function seedSkillsIfFirst(
       'INSERT INTO folders (id, owner_id, name, parent_id, created_at) VALUES (?,?,?,?,?)',
     ).run(folderId, accountId, skill.name, null, now())
     for (const file of skill.files) {
+      const content = skillFile(skill.slug, file.path, file.content)
       const docId = randomId(22)
       db.prepare(
         'INSERT INTO docs (id, title, kind, owner_id, folder_id, content, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)',
-      ).run(docId, file.path, 'plain', accountId, folderId, file.content, now(), now())
-      bumpContent(db, docId, file.content, username, false, 'plain', 'seed')
+      ).run(docId, file.path, 'plain', accountId, folderId, content, now(), now())
+      bumpContent(db, docId, content, username, false, 'plain', 'seed')
     }
     const manifest = buildManifest(services, fakeReq, folderId, undefined)
     if (manifest) {
@@ -181,16 +496,119 @@ export function seedSkillsIfFirst(
   db.prepare('INSERT INTO meta (key, value) VALUES (?,?)').run(`skills_seeded_v1_${accountId}`, '1')
 }
 
+/**
+ * Upgrade previously seeded starter skills in place: refresh every file from
+ * the canonical skills/ tree and cut a new immutable release. Runs once per
+ * account so agents pinning an old version keep their manifest.
+ */
+export function upgradeSeededSkillsV2(
+  services: AppServices,
+  accountId: string,
+  username: string,
+): void {
+  const { db } = services
+  const done = db.prepare('SELECT value FROM meta WHERE key=?').get(`skills_seeded_v2_${accountId}`)
+  if (done) return
+  const fakeReq = (() => {
+    try {
+      const u = new URL(services.config.publicUrl)
+      return { headers: { host: u.host }, query: {}, body: {} } as unknown as Request
+    } catch {
+      return { headers: { host: 'localhost:8080' }, query: {}, body: {} } as unknown as Request
+    }
+  })()
+  let upgraded = 0
+  let preserved = 0
+  for (const skill of SKILLS) {
+    const row = db.prepare('SELECT folder_id FROM skills WHERE slug=?').get(skill.slug) as
+      { folder_id: string } | undefined
+    if (!row) continue
+    const prev = db
+      .prepare(
+        'SELECT manifest FROM skill_releases WHERE folder_id=? ORDER BY version DESC LIMIT 1',
+      )
+      .get(row.folder_id) as { manifest: string } | undefined
+    const prevFiles = new Map<string, string>()
+    if (prev) {
+      const m = JSON.parse(prev.manifest) as { files: { path: string; content?: string }[] }
+      for (const f of m.files) if (f.content !== undefined) prevFiles.set(f.path, f.content)
+    }
+    let changed = false
+    for (const file of skill.files) {
+      const content = skillFile(skill.slug, file.path, file.content)
+      const doc = db
+        .prepare('SELECT id, content FROM docs WHERE folder_id=? AND title=?')
+        .get(row.folder_id, file.path) as { id: string; content: string } | undefined
+      if (doc) {
+        if (doc.content === content) continue
+        // Never clobber a customized seed doc: only replace files that still
+        // match the previously shipped release content (untouched seeds).
+        const prevContent = prevFiles.get(file.path)
+        const untouched = prevContent !== undefined && doc.content === prevContent
+        if (!untouched) {
+          preserved++
+          continue
+        }
+        bumpContent(db, doc.id, content, username, false, 'plain', 'seed-upgrade')
+        changed = true
+      } else {
+        const docId = randomId(22)
+        db.prepare(
+          'INSERT INTO docs (id, title, kind, owner_id, folder_id, content, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)',
+        ).run(docId, file.path, 'plain', accountId, row.folder_id, content, now(), now())
+        bumpContent(db, docId, content, username, false, 'plain', 'seed-upgrade')
+        changed = true
+      }
+    }
+    const manifest = buildManifest(services, fakeReq, row.folder_id, undefined, true)
+    const latest = db
+      .prepare(
+        'SELECT manifest FROM skill_releases WHERE folder_id=? ORDER BY version DESC LIMIT 1',
+      )
+      .get(row.folder_id) as { manifest: string } | undefined
+    const current = manifest && JSON.stringify(manifest.files.map((f) => [f.path, f.sha256]).sort())
+    const frozen =
+      latest &&
+      JSON.stringify(
+        (JSON.parse(latest.manifest) as { files: { path: string; sha256: string }[] }).files
+          .map((f) => [f.path, f.sha256])
+          .sort(),
+      )
+    if ((changed || current !== frozen) && manifest) {
+      const next = (
+        db
+          .prepare('SELECT COALESCE(MAX(version),0)+1 AS v FROM skill_releases WHERE folder_id=?')
+          .get(row.folder_id) as { v: number }
+      ).v
+      db.prepare(
+        'INSERT INTO skill_releases (folder_id, version, notes, manifest, created_at) VALUES (?,?,?,?,?)',
+      ).run(
+        row.folder_id,
+        next,
+        'v2: canonical commit/PR templates',
+        JSON.stringify({ ...manifest, version: next }),
+        now(),
+      )
+      upgraded++
+    }
+  }
+  db.prepare('INSERT INTO meta (key, value) VALUES (?,?)').run(`skills_seeded_v2_${accountId}`, '1')
+  console.log(
+    `[seed] upgraded ${upgraded} seeded skill(s) to v2, preserved ${preserved} customized file(s) for account ${accountId}`,
+  )
+}
+
 /** Repair seeded release manifests that were frozen before version numbering. */
 export function repairSeededSkills(db: Db): void {
-  const rows = db.prepare('SELECT id, manifest FROM skill_releases WHERE version=1').all() as {
+  const rows = db.prepare('SELECT id, version, manifest FROM skill_releases').all() as {
     id: number
+    version: number
     manifest: string
   }[]
   for (const row of rows) {
     const m = JSON.parse(row.manifest) as { version?: number | string }
     if (m.version === 'unreleased') {
-      m.version = 1
+      m.version = row.version
       db.prepare('UPDATE skill_releases SET manifest=? WHERE id=?').run(JSON.stringify(m), row.id)
     }
   }

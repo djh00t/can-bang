@@ -172,15 +172,18 @@ describe('service coverage', () => {
     services.setTyping('doc1', 'alice')
     services.setTyping('doc2', 'bob')
     expect(services.getTyping('doc1')).toEqual(['alice'])
-    vi.useFakeTimers()
-    services.debouncedEdited('doc1')
-    services.debouncedEdited('doc1')
-    vi.advanceTimersByTime(4000)
-    const edited = db
-      .prepare("SELECT * FROM events WHERE doc_id='doc1' AND type='doc.edited'")
-      .all()
-    expect(edited.length).toBe(1)
-    vi.useRealTimers()
+    try {
+      vi.useFakeTimers()
+      services.debouncedEdited('doc1')
+      services.debouncedEdited('doc1')
+      vi.advanceTimersByTime(4000)
+      const edited = db
+        .prepare("SELECT * FROM events WHERE doc_id='doc1' AND type='doc.edited'")
+        .all()
+      expect(edited.length).toBe(1)
+    } finally {
+      vi.useRealTimers()
+    }
     db.close()
   })
 

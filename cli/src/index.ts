@@ -146,6 +146,14 @@ Chief supervision
 Feedback
   mde papercut <doc> <summary> [--category api|cli|docs|handoff|other]
 
+Tasks
+  mde projects [--json]
+  mde tasks <projectId> [--json]
+  mde task <taskId> [--json]
+  mde task new <phaseId> <title> [--status s] [--assignee a] [--feature f] [--priority p]
+      [--done-means m] [--acceptance a] [--context c] [--description d] [--blockers b]
+  mde task edit <taskId> [same flags; an empty value clears the field]
+
 Environment: MDE_URL, MDE_TOKEN, MDE_AUTHOR
 `)
     return
@@ -624,6 +632,111 @@ anything needing a human. Ctrl-C to stop.`)
     })
     if (r.status !== 200) fail(r)
     console.log('reported')
+    return
+  }
+
+  const taskSpecFlags = [
+    '--status',
+    '--assignee',
+    '--feature',
+    '--priority',
+    '--done-means',
+    '--acceptance',
+    '--context',
+    '--description',
+    '--blockers',
+  ] as const
+  const taskSpecBody = (): Record<string, string | null> => {
+    const body: Record<string, string | null> = {}
+    for (const name of taskSpecFlags) {
+      const value = flag(name)
+      if (value === undefined) continue
+      body[name === '--done-means' ? 'done_means' : name.slice(2)] = value === '' ? null : value
+    }
+    return body
+  }
+
+  if (verb === 'projects') {
+    const r = await req('GET', '/api/projects')
+    if (r.status !== 200) fail(r)
+    const projects = r.json.projects as {
+      id: string
+      name: string
+      counts: { total: number; done: number }
+    }[]
+    if (has('--json')) console.log(JSON.stringify(projects, null, 2))
+    else
+      for (const p of projects)
+        console.log(`${p.id}\t${p.name}\t${p.counts.done}/${p.counts.total}`)
+    return
+  }
+  if (verb === 'tasks') {
+    const project = pos(1)
+    if (!project) fail({ status: 400, json: { error: 'projectId required' } })
+    const r = await req('GET', `/api/projects/${project}`)
+    if (r.status !== 200) fail(r)
+    const tasks = (r.json as { tasks?: Record<string, unknown>[] }).tasks ?? []
+    if (has('--json')) console.log(JSON.stringify(tasks, null, 2))
+    else
+      for (const t of tasks as {
+        id: string
+        title: string
+        status: string
+        assignee?: string | null
+      }[])
+        console.log(`${t.id}\t${t.status}\t${t.assignee ? `@${t.assignee} ` : ''}${t.title}`)
+    return
+  }
+  if (verb === 'task') {
+    const sub = pos(1)
+    if (sub === 'new' || sub === 'edit') {
+      const id = pos(2)
+      const title = sub === 'new' ? pos(3) : undefined
+      if (!id || (sub === 'new' && !title))
+        fail({
+          status: 400,
+          json: { error: `task ${sub} <id>${sub === 'new' ? ' <title>' : ''} required` },
+        })
+      const body = taskSpecBody()
+      if (title) body.title = title
+      if (sub === 'new') {
+        const r = await req('POST', `/api/phases/${id}/tasks`, body)
+        if (r.status !== 201) fail(r)
+        console.log(`created ${String((r.json.task as { id?: string }).id ?? '')}`)
+      } else {
+        const r = await req('PATCH', `/api/tasks/${id}`, body)
+        if (r.status !== 200) fail(r)
+        console.log('updated')
+      }
+      return
+    }
+    if (!sub) fail({ status: 400, json: { error: 'task <taskId> required' } })
+    const r = await req('GET', `/api/tasks/${sub}`)
+    if (r.status !== 200) fail(r)
+    if (has('--json')) {
+      console.log(JSON.stringify(r.json, null, 2))
+    } else {
+      const body = r.json as {
+        task: Record<string, unknown>
+        phase: { name: string }
+        project: { name: string }
+      }
+      const t = body.task
+      const show = (label: string, v: unknown) => {
+        if (v) console.log(`${label}: ${String(v)}`)
+      }
+      console.log(
+        `${String(t.title ?? '')} [${String(t.status ?? '')}] · ${String(body.project.name)} / ${String(body.phase.name)}`,
+      )
+      show('assignee', t.assignee)
+      show('feature', t.feature)
+      show('priority', t.priority)
+      show('done-means', t.done_means)
+      show('acceptance', t.acceptance)
+      show('context', t.context)
+      show('description', t.description)
+      show('blockers', t.blockers)
+    }
     return
   }
 
