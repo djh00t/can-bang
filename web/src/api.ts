@@ -620,6 +620,14 @@ export class Api {
     return res.json()
   }
 
+  async projectBurndown(
+    projectId: string,
+    days = 30,
+  ): Promise<{ points: { date: string; remaining: number }[]; total: number; current: number }> {
+    const res = await this.request(`/api/projects/${projectId}/burndown?days=${days}`)
+    return res.json()
+  }
+
   async matrix(projectId: string): Promise<{
     project: { id: string; name: string }
     phases: {

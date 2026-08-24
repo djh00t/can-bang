@@ -108,37 +108,31 @@ function recordTaskEvent(
   )
 }
 
-function burndown(
-  db: Db,
-  phaseId: string,
+type BurndownTask = { id: string }
+type BurndownEvent = { task_id: string; status: string; ts: number }
+
+function calculateBurndown(
+  tasks: BurndownTask[],
+  events: BurndownEvent[],
   days: number,
 ): { points: { date: string; remaining: number }[]; total: number; current: number } {
-  const tasks = db.prepare('SELECT id FROM tasks WHERE phase_id=?').all(phaseId) as { id: string }[]
   if (!tasks.length) return { points: [], total: 0, current: 0 }
   const DAY = 86_400_000
-  const first =
-    (
-      db.prepare('SELECT MIN(ts) AS t FROM task_events WHERE phase_id=?').get(phaseId) as {
-        t: number | null
-      }
-    ).t ?? Date.now()
+  const first = events[0]?.ts ?? Date.now()
   const firstDay = Math.floor(first / DAY) * DAY
   const lastDay = Math.floor(Date.now() / DAY) * DAY
   const start = Math.max(firstDay, lastDay - (days - 1) * DAY)
-  const created = new Map<string, number>()
+  const firstEvent = new Map<string, BurndownEvent>()
   const doneAt = new Map<string, number>()
+  for (const event of events) {
+    if (!firstEvent.has(event.task_id)) firstEvent.set(event.task_id, event)
+    if (event.status === 'done' && !doneAt.has(event.task_id)) doneAt.set(event.task_id, event.ts)
+  }
+  const created = new Map<string, number>()
   for (const task of tasks) {
-    const firstEv = db
-      .prepare('SELECT status, ts FROM task_events WHERE task_id=? ORDER BY ts ASC LIMIT 1')
-      .get(task.id) as { status: string; ts: number } | undefined
+    const firstEv = firstEvent.get(task.id)
     if (!firstEv) continue
     if (firstEv.status !== 'done') created.set(task.id, firstEv.ts)
-    const done = db
-      .prepare(
-        "SELECT ts FROM task_events WHERE task_id=? AND status='done' ORDER BY ts ASC LIMIT 1",
-      )
-      .get(task.id) as { ts: number } | undefined
-    if (done) doneAt.set(task.id, done.ts)
   }
   const points: { date: string; remaining: number }[] = []
   for (let day = start; day <= lastDay; day += DAY) {
@@ -154,6 +148,35 @@ function burndown(
     total: tasks.length,
     current: points.length ? points[points.length - 1]!.remaining : 0,
   }
+}
+
+function phaseBurndown(
+  db: Db,
+  phaseId: string,
+  days: number,
+): { points: { date: string; remaining: number }[]; total: number; current: number } {
+  const tasks = db.prepare('SELECT id FROM tasks WHERE phase_id=?').all(phaseId) as BurndownTask[]
+  const events = db
+    .prepare('SELECT task_id, status, ts FROM task_events WHERE phase_id=? ORDER BY ts ASC, id ASC')
+    .all(phaseId) as BurndownEvent[]
+  return calculateBurndown(tasks, events, days)
+}
+
+function projectBurndown(
+  db: Db,
+  projectId: string,
+  days: number,
+): { points: { date: string; remaining: number }[]; total: number; current: number } {
+  const tasks = db
+    .prepare('SELECT t.id FROM tasks t JOIN phases p ON p.id=t.phase_id WHERE p.project_id=?')
+    .all(projectId) as BurndownTask[]
+  const events = db
+    .prepare(
+      `SELECT e.task_id, e.status, e.ts FROM task_events e
+       JOIN phases p ON p.id=e.phase_id WHERE p.project_id=? ORDER BY e.ts ASC, e.id ASC`,
+    )
+    .all(projectId) as BurndownEvent[]
+  return calculateBurndown(tasks, events, days)
 }
 
 export function workspaceRoutes(services: AppServices): express.Router {
@@ -425,13 +448,24 @@ state: building
   )
 
   r.get(
+    '/api/projects/:id/burndown',
+    asyncHandler((req: Request, res: Response) => {
+      const accountId = accountIdOf(req)
+      const project = projectOf(db, accountId, req.params.id!)
+      reindexIfStale(db, project.id)
+      const days = Math.min(Math.max(Number(req.query.days ?? 30), 2), 90)
+      res.json(projectBurndown(db, project.id, days))
+    }),
+  )
+
+  r.get(
     '/api/phases/:id/burndown',
     asyncHandler((req: Request, res: Response) => {
       const accountId = accountIdOf(req)
       const phase = phaseOf(db, accountId, req.params.id!)
       reindexIfStale(db, phase.project_id)
       const days = Math.min(Math.max(Number(req.query.days ?? 30), 2), 90)
-      res.json(burndown(db, phase.id, days))
+      res.json(phaseBurndown(db, phase.id, days))
     }),
   )
 
