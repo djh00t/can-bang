@@ -518,10 +518,21 @@ export function upgradeSeededSkillsV2(
     }
   })()
   let upgraded = 0
+  let preserved = 0
   for (const skill of SKILLS) {
     const row = db.prepare('SELECT folder_id FROM skills WHERE slug=?').get(skill.slug) as
       { folder_id: string } | undefined
     if (!row) continue
+    const prev = db
+      .prepare(
+        'SELECT manifest FROM skill_releases WHERE folder_id=? ORDER BY version DESC LIMIT 1',
+      )
+      .get(row.folder_id) as { manifest: string } | undefined
+    const prevFiles = new Map<string, string>()
+    if (prev) {
+      const m = JSON.parse(prev.manifest) as { files: { path: string; content?: string }[] }
+      for (const f of m.files) if (f.content !== undefined) prevFiles.set(f.path, f.content)
+    }
     let changed = false
     for (const file of skill.files) {
       const content = skillFile(skill.slug, file.path, file.content)
@@ -530,6 +541,14 @@ export function upgradeSeededSkillsV2(
         .get(row.folder_id, file.path) as { id: string; content: string } | undefined
       if (doc) {
         if (doc.content === content) continue
+        // Never clobber a customized seed doc: only replace files that still
+        // match the previously shipped release content (untouched seeds).
+        const prevContent = prevFiles.get(file.path)
+        const untouched = prevContent !== undefined && doc.content === prevContent
+        if (!untouched) {
+          preserved++
+          continue
+        }
         bumpContent(db, doc.id, content, username, false, 'plain', 'seed-upgrade')
         changed = true
       } else {
@@ -574,7 +593,9 @@ export function upgradeSeededSkillsV2(
     }
   }
   db.prepare('INSERT INTO meta (key, value) VALUES (?,?)').run(`skills_seeded_v2_${accountId}`, '1')
-  console.log(`[seed] upgraded ${upgraded} seeded skill(s) to v2 for account ${accountId}`)
+  console.log(
+    `[seed] upgraded ${upgraded} seeded skill(s) to v2, preserved ${preserved} customized file(s) for account ${accountId}`,
+  )
 }
 
 /** Repair seeded release manifests that were frozen before version numbering. */

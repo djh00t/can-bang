@@ -81,4 +81,42 @@ describe('seeded skills', () => {
       .get(prFolder.folder_id) as { c: number }
     expect(count.c).toBe(2)
   })
+
+  it('preserves user-customized seeded skill docs during the upgrade', async () => {
+    await account(ctx.app, 'seed-custom-owner')
+    const accountRow = ctx.db
+      .prepare("SELECT id, username FROM accounts WHERE username='seed-custom-owner'")
+      .get() as { id: string; username: string }
+    seedSkillsIfFirst(ctx.services, accountRow.id, accountRow.username)
+
+    const prFolder = ctx.db
+      .prepare("SELECT folder_id FROM skills WHERE slug='pr-helper'")
+      .get() as { folder_id: string }
+    const doc = ctx.db
+      .prepare("SELECT id, content FROM docs WHERE folder_id=? AND title='SKILL.md'")
+      .get(prFolder.folder_id) as { id: string; content: string }
+    const customized = `# PR Helper (customized locally)\n\nKeep our own rules.\n`
+    ctx.db
+      .prepare('UPDATE docs SET content=?, updated_at=? WHERE id=?')
+      .run(customized, Date.now(), doc.id)
+
+    upgradeSeededSkillsV2(ctx.services, accountRow.id, accountRow.username)
+
+    const after = ctx.db.prepare('SELECT content FROM docs WHERE id=?').get(doc.id) as {
+      content: string
+    }
+    expect(after.content).toBe(customized)
+    // The missing template is still added and a v2 release is cut from the
+    // folder's actual (customized) contents.
+    const titles = (
+      ctx.db.prepare('SELECT title FROM docs WHERE folder_id=?').all(prFolder.folder_id) as {
+        title: string
+      }[]
+    ).map((d) => d.title)
+    expect(titles).toContain('PULL_REQUEST_TEMPLATE.md')
+    const release = ctx.db
+      .prepare('SELECT version FROM skill_releases WHERE folder_id=? ORDER BY version DESC LIMIT 1')
+      .get(prFolder.folder_id) as { version: number }
+    expect(release.version).toBe(2)
+  })
 })
