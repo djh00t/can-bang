@@ -9,6 +9,7 @@ import { resolveAccess } from './auth.js'
 import { escalateAsks } from './routes/asks.js'
 import {
   dedupeSeededProjects,
+  backfillProjectDocs,
   renameSeededProjects,
   repairSeededSkills,
   seedSkillsIfFirst,
@@ -123,6 +124,7 @@ async function main(): Promise<void> {
   repairSeededSkills(db)
   dedupeSeededProjects(db)
   renameSeededProjects(db)
+  backfillProjectDocs(db)
 
   services.startWebhookLoop()
   const escalationTimer = setInterval(() => {

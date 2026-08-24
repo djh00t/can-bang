@@ -393,3 +393,42 @@ export function renameSeededProjects(db: Db): void {
     "UPDATE docs SET title=replace(title, 'Workbench Local — HQ', 'CanBang — HQ') WHERE title LIKE '%Workbench Local — HQ%'",
   ).run()
 }
+
+/** Give every project without one an HQ doc (board + status + chat). */
+export function backfillProjectDocs(db: Db): void {
+  const rows = db.prepare('SELECT id, owner_id, name FROM projects WHERE doc_id IS NULL').all() as {
+    id: string
+    owner_id: string
+    name: string
+  }[]
+  for (const p of rows) {
+    const docId = randomId(22)
+    const content = `# ${p.name} — HQ
+
+## Board
+
+\`\`\`board #tickets
+## Todo
+## Doing
+## Testing
+## Done
+\`\`\`
+
+## Status
+
+\`\`\`status
+state: building
+\`\`\`
+
+## Team chat
+
+\`\`\`chat #general
+\`\`\`
+`
+    db.prepare(
+      'INSERT INTO docs (id, title, kind, owner_id, folder_id, content, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)',
+    ).run(docId, `${p.name} — HQ`, 'live', p.owner_id, null, content, now(), now())
+    bumpContent(db, docId, content, 'seed', false, 'live', 'seed')
+    db.prepare('UPDATE projects SET doc_id=? WHERE id=?').run(docId, p.id)
+  }
+}

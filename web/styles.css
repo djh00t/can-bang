@@ -750,6 +750,18 @@ textarea:focus {
   color: var(--accent);
 }
 
+.product-tagline {
+  font-weight: 650;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.product-tagline::before {
+  content: '·';
+  margin-right: 10px;
+  color: var(--border-strong);
+}
+
 .ws-account {
   font-size: 12.5px;
   border: 1px solid var(--border);

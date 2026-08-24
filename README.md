@@ -1,5 +1,7 @@
 # CanBang
 
+**Multi-Agent Canvas** — collaborative markdown for humans and agents.
+
 Self-hosted Docker emulation of [workbench.md](https://workbench.md): collaborative
 markdown for humans and agents. Same URL surface, headers, status codes, and JSON
 shapes as the live product, so Claude Code, Cursor, Codex, and anything that

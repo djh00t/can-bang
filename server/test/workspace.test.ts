@@ -1,6 +1,7 @@
 import request from 'supertest'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { makeCtx, account, type TestCtx } from './helpers.js'
+import { backfillProjectDocs } from '../src/seed.js'
 
 describe('workspace hierarchy', () => {
   let ctx: TestCtx
@@ -136,5 +137,22 @@ describe('workspace hierarchy', () => {
     expect(burndown.body.points.length).toBeGreaterThan(0)
     const overview = await agent.get(`/api/projects/${pid}`)
     expect(overview.body.phases[0].docTitle).toBe('Phase doc')
+  })
+
+  it('backfills HQ docs for projects without one', async () => {
+    const { agent } = await account(ctx.app, 'bf-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'Bare' })).body.project.id as string
+    ctx.db.prepare('UPDATE projects SET doc_id=NULL WHERE id=?').run(pid)
+    backfillProjectDocs(ctx.db)
+    const row = ctx.db.prepare('SELECT doc_id FROM projects WHERE id=?').get(pid) as {
+      doc_id: string | null
+    }
+    expect(row.doc_id).toBeTruthy()
+    const doc = ctx.db.prepare('SELECT title, content FROM docs WHERE id=?').get(row.doc_id) as {
+      title: string
+      content: string
+    }
+    expect(doc.title).toBe('Bare — HQ')
+    expect(doc.content).toContain('```chat')
   })
 })

@@ -423,6 +423,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       <div class="ws-topbar">
         <div class="ws-top-left">
           <div class="ws-brand" data-go-home role="button" tabindex="0"><img src="/logo.svg" alt="" class="brand-logo" /> CanBang</div>
+          <span class="product-tagline muted small">Multi-Agent Canvas</span>
           <span class="muted small">${me ? `@${escapeHtml(me.username)}${me.agent_name ? ` · ${escapeHtml(me.agent_name)}` : ''}` : 'not signed in'}</span>
         </div>
         <div class="ws-top-actions">
@@ -787,7 +788,9 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
 
   const renderAgents = () => {
     if (!data!.project.docId) {
-      return `<div class="panel"><h3>Agent onboarding</h3><span class="muted small">Link a project doc first to onboard agents.</span></div>`
+      return `<div class="panel"><h3>Agent onboarding</h3>
+        <span class="muted small">This project has no linked doc yet.</span>
+        <button class="btn sm" id="create-project-hq">Create HQ doc + prompt</button></div>`
     }
     return `<div class="panel"><h3>Agent onboarding</h3>
       ${
@@ -1027,6 +1030,9 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     document
       .getElementById('gen-agent-prompt')
       ?.addEventListener('click', () => void genAgentPrompt())
+    document
+      .getElementById('create-project-hq')
+      ?.addEventListener('click', () => void createProjectHq())
     document
       .getElementById('copy-agent-prompt')
       ?.addEventListener('click', () => void copyAgentPrompt())
@@ -1311,6 +1317,17 @@ ${data!.project.description ?? 'Ship the current phase, then the next.'}`
     if (!data?.project.docId) return
     const s = await api.share(data.project.docId, 'edit')
     agentPrompt = { link: s.share.url, text: buildAgentPrompt(s.share.url) }
+    render()
+  }
+
+  const createProjectHq = async () => {
+    if (!projectId) return
+    const name = data?.project.name ?? 'Project'
+    const doc = await api.createOwnedDoc(`${name} — HQ`, hqContent(name))
+    await api.patchProject(projectId, { doc_id: doc.id })
+    const s = await api.share(doc.id, 'edit')
+    agentPrompt = { link: s.share.url, text: buildAgentPrompt(s.share.url) }
+    await loadProject()
     render()
   }
 
