@@ -42,6 +42,7 @@ Then open http://localhost:8080 and paste the link into any agent:
 ## Commands
 
 - `make install` — reproducible install from the lockfile
+- `make core-test` — run the core package test suite directly
 - `make check` — typecheck, format check, tests with 85% coverage gate
 - `make quality-gates` — `check` + build
 - `make build` — build all packages
