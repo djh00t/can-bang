@@ -614,12 +614,13 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     const pct =
       phase && phase.counts.total ? Math.round((phase.counts.done / phase.counts.total) * 100) : 0
     return `
-      <div class="ws-pipeline">
+      <div class="ws-pipeline-wrap">
         ${
           phase
             ? `<div class="ws-filter-row"><span class="tag">Filtered · ${escapeHtml(phase.name)}</span><button class="btn sm" data-clear-phase>All phases</button></div>`
             : '<div class="ws-filter-row"><span class="tag">All phases</span></div>'
         }
+        <div class="ws-pipeline">
         <div class="ws-board">
           ${columns
             .map(
@@ -658,6 +659,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
           </div>
           ${renderChat()}
           <button class="btn sm block" id="add-task">+ Task in ${phase ? escapeHtml(phase.name) : 'phase'}</button>
+        </div>
         </div>
       </div>`
   }

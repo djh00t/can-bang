@@ -1024,6 +1024,12 @@ textarea:focus {
   align-items: start;
 }
 
+.ws-pipeline-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .ws-filter-row {
   display: flex;
   align-items: center;
