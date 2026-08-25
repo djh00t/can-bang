@@ -113,7 +113,7 @@ export function pagesRoutes(services: AppServices): express.Router {
 
   // /p/... — workspace hierarchy routes are rendered by the web SPA.
   // Keep this fallback server-side so every project, phase, release, and task
-  // URL can be refreshed or opened directly.
+  // URL (including matrix release links) can be refreshed or opened directly.
   r.get(/^\/p(?:\/.*)?$/, (_req: Request, res: Response) => {
     sendSpa(res, services)
   })
@@ -505,11 +505,15 @@ Collaboration
   mde reject <doc> <id...>
   mde history <doc> [--json]
   mde events <doc> [--since N] [--json]
-  mde watch <doc> [--since N] [--json] [--exec cmd] [--skip-self] [--cursor]
+  mde watch <doc> [--since N] [--json] [--exec cmd] [--skip-self] [--cursor] [--daemon|--daemon-off]
 
 Agent presence
   mde register <name> [--role chief] [--harness x]
   mde heartbeat <name>
+  mde activity <doc> [--json]
+
+Chief supervision
+  mde chief-supervisor [--chief name] [--interval sec]
 
 Feedback
   mde papercut <doc> <summary> [--category api|cli|docs|handoff|other]

@@ -444,6 +444,25 @@ server.registerTool(
 )
 
 server.registerTool(
+  'project_burndown',
+  {
+    description: 'Read aggregate remaining work across all phases for a project.',
+    inputSchema: {
+      project: z.string().min(1),
+      days: z.number().int().min(2).max(90).optional(),
+    },
+  },
+  async ({ project, days }) => {
+    const resolved = resolveEntity(project, [/^\/p\/([^/]+)/])
+    if (resolved.error) return resultFrom(resolved.error)
+    const query = days === undefined ? '' : `?days=${encodeURIComponent(String(days))}`
+    return resultFrom(
+      await jsonRequest(`/api/projects/${encodeURIComponent(resolved.id!)}/burndown${query}`),
+    )
+  },
+)
+
+server.registerTool(
   'get_task',
   {
     description:

@@ -53,7 +53,7 @@ type ProjectData = {
   counts: { total: number; done: number; doing: number; testing: number; todo: number }
 }
 
-type MatrixData = {
+export type MatrixData = {
   project: { id: string; name: string }
   phases: {
     id: string
@@ -143,6 +143,69 @@ const STATUS_LABEL: Record<string, string> = {
   'in-progress': 'in progress',
   planned: 'planned',
   none: '—',
+}
+
+export function renderFeatureMatrix(matrixData: MatrixData | null): string {
+  if (!matrixData) return '<div class="panel"><span class="muted">loading matrix…</span></div>'
+  const releaseColumns = matrixData.phases
+    .map((phase) => {
+      const control = phase.release
+        ? '<button type="button" class="ws-matrix-release" data-release="' +
+          escapeHtml(phase.release.id) +
+          '" aria-label="Open release ' +
+          escapeHtml(phase.release.name) +
+          '"><span>' +
+          escapeHtml(phase.release.name) +
+          '</span><span class="status-pill sp-' +
+          escapeHtml(phase.release.demo_status) +
+          '">' +
+          escapeHtml(phase.release.demo_status) +
+          '</span></button>'
+        : '<span class="ws-matrix-release ws-matrix-no-release">No release</span>'
+      return (
+        '<th scope="col"><span class="ws-matrix-phase">' +
+        escapeHtml(phase.name) +
+        '</span>' +
+        control +
+        '</th>'
+      )
+    })
+    .join('')
+  const rows = matrixData.rows.length
+    ? matrixData.rows
+        .map(
+          (row) =>
+            '<tr><th scope="row"><b>' +
+            escapeHtml(row.feature) +
+            '</b></th>' +
+            row.cells
+              .map((cell) => {
+                const statusClass = cell.status === 'none' ? 'todo' : cell.status
+                return (
+                  '<td data-status="' +
+                  escapeHtml(cell.status) +
+                  '"><span class="status-pill sp-' +
+                  escapeHtml(statusClass) +
+                  '">' +
+                  escapeHtml(STATUS_LABEL[cell.status] ?? cell.status) +
+                  '</span></td>'
+                )
+              })
+              .join('') +
+            '</tr>',
+        )
+        .join('')
+    : '<tr><td colspan="' +
+      String(matrixData.phases.length + 1) +
+      '" class="muted">No feature data yet.</td></tr>'
+  return (
+    '<div class="ws-matrix-wrap panel" aria-label="Feature status matrix">' +
+    '<table class="ws-matrix"><thead><tr><th scope="col">Feature</th>' +
+    releaseColumns +
+    '</tr></thead><tbody>' +
+    rows +
+    '</tbody></table><div class="muted small">Open a release from its phase column to review its tasks and demo status.</div></div>'
+  )
 }
 
 function hqContent(name: string): string {
@@ -495,6 +558,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   let taskId: string | null = null
   let taskDetail: Awaited<ReturnType<Api['taskDetail']>> | null = null
   const burndownCache = new Map<string, Awaited<ReturnType<Api['phaseBurndown']>>>()
+  let projectBurndown: Awaited<ReturnType<Api['projectBurndown']>> | null = null
   const expanded = new Set<string>()
   let chat: {
     docId: string
@@ -597,6 +661,9 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       projectKeys = []
     }
     if (view === 'matrix') matrixData = await api.matrix(projectId)
+    if (view === 'pipeline') {
+      projectBurndown = await api.projectBurndown(projectId)
+    }
     await loadPhaseBurndown(phaseId)
     await loadAgents()
     await loadChat()
@@ -631,6 +698,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     data = null
     projectKeys = []
     matrixData = null
+    projectBurndown = null
     detail = 'project'
     view = 'overview'
     history.pushState(null, '', '/')
@@ -646,6 +714,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     view = 'overview'
     taskId = null
     taskDetail = null
+    projectBurndown = null
     projectKeys = []
     await loadProject()
     syncExpanded()
@@ -739,6 +808,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   const setView = async (v: 'overview' | 'pipeline' | 'matrix' | 'settings') => {
     view = v
     if (v === 'matrix' && projectId) matrixData = await api.matrix(projectId)
+    if (v === 'pipeline' && projectId) await loadProject()
     syncUrl()
     render()
   }
@@ -1223,40 +1293,10 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       <div class="muted small">Paste the same prompt into each Codex instance — they self-assign roles (one agent per role).</div></div>`
   }
 
-  const renderMatrix = () => {
-    if (!matrixData) return '<div class="panel"><span class="muted">loading matrix…</span></div>'
-    return `
-      <div class="ws-matrix-wrap panel">
-        <table class="ws-matrix">
-          <thead><tr>
-            <th>Feature</th>
-            ${matrixData.phases
-              .map(
-                (ph) =>
-                  `<th>${escapeHtml(ph.name)}<br/><button class="ws-matrix-release" data-release="${ph.release?.id ?? ''}">${escapeHtml(ph.release?.name ?? 'no release')} · <span class="status-pill sp-${ph.release?.demo_status ?? 'pending'}">${ph.release?.demo_status ?? '—'}</span></button></th>`,
-              )
-              .join('')}
-          </tr></thead>
-          <tbody>
-            ${matrixData.rows
-              .map(
-                (row) =>
-                  `<tr><td><b>${escapeHtml(row.feature)}</b></td>${row.cells
-                    .map(
-                      (c) =>
-                        `<td><span class="status-pill sp-${c.status === 'none' ? 'todo' : c.status}">${STATUS_LABEL[c.status] ?? c.status}</span></td>`,
-                    )
-                    .join('')}</tr>`,
-              )
-              .join('')}
-          </tbody>
-        </table>
-        <div class="muted small">Click a release column to open that release's detail view.</div>
-      </div>`
-  }
+  const renderMatrix = () => renderFeatureMatrix(matrixData)
 
   const renderBurndown = (phase: Phase | null) => {
-    const b = phase ? burndownCache.get(phase.id) : undefined
+    const b = phase ? burndownCache.get(phase.id) : projectBurndown
     const counts = phase ? phase.counts : { done: data!.counts.done, total: data!.counts.total }
     const pct = counts.total ? Math.round((counts.done / counts.total) * 100) : 0
     const heading = `<div class="ws-burndown-top-head"><h3>Burndown${phase ? ` · ${escapeHtml(phase.name)}` : ' · all phases'}</h3></div>`
