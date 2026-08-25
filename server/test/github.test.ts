@@ -129,6 +129,7 @@ describe('github issues sync', () => {
     expect(patched.body.tokenSet).toBe(true)
     const overview = await agent.get(`/api/projects/${pid}`)
     expect(overview.body.project.github.enabled).toBe(true)
+    expect(overview.body.project.github.syncEnabled).toBe(false)
     expect(JSON.stringify(overview.body)).not.toContain('ghp_secret')
     const denied = await other
       .patch(`/api/projects/${pid}/github`)

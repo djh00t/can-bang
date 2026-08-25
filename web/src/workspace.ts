@@ -151,6 +151,19 @@ const STATUS_LABEL: Record<string, string> = {
   none: '—',
 }
 
+export function renderProjectSyncIndicator(github: {
+  enabled: boolean
+  repo: string | null
+  syncEnabled: boolean
+}): string {
+  if (!github.enabled) return ''
+  const state = github.syncEnabled ? 'Synced' : 'Configured'
+  return `<div class="ws-sync-indicator" role="status" aria-label="GitHub sync status">
+    <span class="status-pill ${github.syncEnabled ? 'sp-pass' : 'sp-pending'}">${state}</span>
+    <span class="muted small">GitHub · ${escapeHtml(github.repo ?? 'repository')}</span>
+  </div>`
+}
+
 export function renderFeatureMatrix(matrixData: MatrixData | null): string {
   if (!matrixData) return '<div class="panel"><span class="muted">loading matrix…</span></div>'
   const releaseColumns = matrixData.phases
@@ -316,6 +329,25 @@ export function renderAgentPromptModal(link: string, text: string, kickoff: stri
       <button type="button" class="btn sm" id="copy-agent-kickoff">Copy kickoff</button>
       <button type="button" class="btn sm" id="copy-agent-prompt">Copy briefing</button>
     </div>`
+}
+
+export function renderPipelineCard(
+  task: {
+    id: string
+    title: string
+    status: string
+    assignee: string | null
+    feature: string | null
+    priority: string | null
+    acceptance: string | null
+    done_means: string | null
+  },
+  releaseName?: string,
+): string {
+  return `<div class="board-card ${task.status}" data-open-task="${task.id}" data-status="${task.status}">
+    <span class="card-text">${escapeHtml(task.title)}${!task.acceptance?.trim() || !task.done_means?.trim() ? '<span class="chip warn" title="Needs acceptance criteria and done-means">⚠ spec</span>' : ''}</span>
+    <span class="card-meta">${task.priority ? `<span class="chip priority-${escapeHtml(task.priority)}">${escapeHtml(task.priority)}</span>` : ''}${releaseName ? `<span class="chip release">🚀 ${escapeHtml(releaseName)}</span>` : ''}${task.assignee ? `<span class="chip assignee">@${escapeHtml(task.assignee)}</span>` : ''}${task.feature ? `<span class="chip tag">${escapeHtml(task.feature)}</span>` : ''}</span>
+  </div>`
 }
 
 export function renderProjectTreeLabel(
@@ -1042,6 +1074,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
         <div>
           <h2>${escapeHtml(data.project.name)}</h2>
           ${data.project.description ? `<div class="muted">${escapeHtml(data.project.description)}</div>` : ''}
+          ${renderProjectSyncIndicator(data.project.github)}
         </div>
         <div class="ws-tabs" role="tablist">
           <button class="ws-tab ${view === 'overview' ? 'on' : ''}" data-view="overview">Overview</button>
@@ -1085,13 +1118,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
               <h4>${label} <span class="col-count">${phaseTasks.filter((t) => t.status === key).length}</span></h4>
               ${phaseTasks
                 .filter((t) => t.status === key)
-                .map(
-                  (t) =>
-                    `<div class="board-card ${t.status}" data-open-task="${t.id}" data-status="${t.status}">
-                       <span class="card-text">${escapeHtml(t.title)}${!t.acceptance?.trim() || !t.done_means?.trim() ? '<span class="chip warn" title="Needs acceptance criteria and done-means">⚠ spec</span>' : ''}</span>
-                       <span class="card-meta">${t.priority ? `<span class="chip priority-${escapeHtml(t.priority)}">${escapeHtml(t.priority)}</span>` : ''}${releaseByPhase.get(t.phaseId) ? `<span class="chip release">🚀 ${escapeHtml(releaseByPhase.get(t.phaseId)!)}</span>` : ''}${t.assignee ? `<span class="chip assignee">@${escapeHtml(t.assignee)}</span>` : ''}${t.feature ? `<span class="chip tag">${escapeHtml(t.feature)}</span>` : ''}</span>
-                     </div>`,
-                )
+                .map((t) => renderPipelineCard(t, releaseByPhase.get(t.phaseId)))
                 .join('')}
             </div>`,
             )

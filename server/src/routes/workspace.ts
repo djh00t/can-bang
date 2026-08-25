@@ -19,6 +19,7 @@ export interface ProjectRow {
   github_repo: string | null
   github_token: string | null
   github_sync: number
+  github_last_synced_at: number | null
   created_at: number
   updated_at: number
 }
@@ -502,9 +503,10 @@ state: building
           docId: project.doc_id,
           docTitle: docTitle(db, project.doc_id),
           github: {
-            enabled: Boolean(project.github_repo && project.github_token),
+            enabled:
+              project.github_sync === 1 && Boolean(project.github_repo && project.github_token),
             repo: project.github_repo,
-            syncEnabled: project.github_sync === 1,
+            syncEnabled: project.github_last_synced_at !== null,
           },
           apiKeyCount: (
             db
@@ -714,7 +716,7 @@ state: building
       if (enabled === 1 && !repo && !project.github_repo)
         throw badRequest('repo required', 'Use owner/name format, e.g. djh00t/can-bang.')
       db.prepare(
-        'UPDATE projects SET github_repo=COALESCE(?, github_repo), github_token=COALESCE(?, github_token), github_sync=?, updated_at=? WHERE id=?',
+        'UPDATE projects SET github_repo=COALESCE(?, github_repo), github_token=COALESCE(?, github_token), github_sync=?, github_last_synced_at=NULL, updated_at=? WHERE id=?',
       ).run(repo ?? null, token ?? null, enabled, now(), project.id)
       const updated = db
         .prepare('SELECT github_repo, github_sync FROM projects WHERE id=?')
@@ -736,14 +738,16 @@ state: building
     asyncHandler(async (req: Request, res: Response) => {
       const accountId = projectAccountIdOf(req, req.params.id!)
       const project = projectOf(db, accountId, req.params.id!)
-      if (!project.github_repo || !project.github_token) {
+      if (!project.github_sync || !project.github_repo || !project.github_token) {
         throw badRequest('github not configured', 'Enable GitHub sync on the project first.')
       }
       reindexIfStale(db, project.id)
       try {
         const summary = await syncProjectGithub(db, project.id, realGh(project.github_token))
-        db.prepare('UPDATE projects SET github_sync=1, updated_at=? WHERE id=?').run(
-          now(),
+        const syncedAt = now()
+        db.prepare('UPDATE projects SET github_last_synced_at=?, updated_at=? WHERE id=?').run(
+          syncedAt,
+          syncedAt,
           project.id,
         )
         res.json({ ok: true, ...summary })
