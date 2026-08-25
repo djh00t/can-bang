@@ -171,6 +171,7 @@ export function resolveAccess(db: Db, req: Request, docId: string): DocAccess {
       identity: {
         kind: 'token',
         accountId: account.id,
+        projectId: account.project_id,
         name: account.agent_name ?? account.username,
         guest: false,
       },

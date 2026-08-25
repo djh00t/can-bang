@@ -115,6 +115,14 @@ describe('workspace hierarchy', () => {
       .set('authorization', 'Bearer ' + first.body.key)
     expect(keyOverview.status).toBe(200)
     expect(keyOverview.body.project.id).toBe(pid)
+    const accountRoute = await request(ctx.app)
+      .get('/api/me')
+      .set('authorization', 'Bearer ' + first.body.key)
+    expect(accountRoute.status).toBe(401)
+    const projectList = await request(ctx.app)
+      .get('/api/projects')
+      .set('authorization', 'Bearer ' + first.body.key)
+    expect(projectList.status).toBe(403)
     const otherPid = (await other.post('/api/projects').send({ name: 'Other project' })).body
       .project.id as string
     const crossProject = await request(ctx.app)
