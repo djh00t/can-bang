@@ -195,6 +195,7 @@ Feedback
 
 Tasks
   mde projects [--json]
+  mde burndown <projectId> [--days N] [--json]
   mde tasks <projectId> [--json]
   mde project-key <projectId> [--label label] [--json]
   mde task <taskId> [--json]
@@ -717,6 +718,25 @@ owner's inbox, and print briefs for anything needing a human. Ctrl-C to stop.`)
     else
       for (const p of projects)
         console.log(`${p.id}\t${p.name}\t${p.counts.done}/${p.counts.total}`)
+    return
+  }
+  if (verb === 'burndown') {
+    const project = pos(1)
+    if (!project) fail({ status: 400, json: { error: 'projectId required' } })
+    const days = flag('--days')
+    const query = days === undefined ? '' : `?days=${encodeURIComponent(days)}`
+    const r = await req('GET', `/api/projects/${encodeURIComponent(project)}/burndown${query}`)
+    if (r.status !== 200) fail(r)
+    const burndown = r.json as {
+      points?: { date: string; remaining: number }[]
+      total?: number
+      current?: number
+    }
+    if (has('--json')) console.log(JSON.stringify(burndown, null, 2))
+    else {
+      console.log(`${burndown.current ?? 0} remaining of ${burndown.total ?? 0}`)
+      for (const point of burndown.points ?? []) console.log(`${point.date}\t${point.remaining}`)
+    }
     return
   }
   if (verb === 'tasks') {

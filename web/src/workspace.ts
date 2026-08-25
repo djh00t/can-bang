@@ -541,6 +541,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   let taskId: string | null = null
   let taskDetail: Awaited<ReturnType<Api['taskDetail']>> | null = null
   const burndownCache = new Map<string, Awaited<ReturnType<Api['phaseBurndown']>>>()
+  let projectBurndown: Awaited<ReturnType<Api['projectBurndown']>> | null = null
   const expanded = new Set<string>()
   let chat: {
     docId: string
@@ -643,6 +644,9 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       projectKeys = []
     }
     if (view === 'matrix') matrixData = await api.matrix(projectId)
+    if (view === 'pipeline') {
+      projectBurndown = await api.projectBurndown(projectId)
+    }
     await loadPhaseBurndown(phaseId)
     await loadAgents()
     await loadChat()
@@ -677,6 +681,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     data = null
     projectKeys = []
     matrixData = null
+    projectBurndown = null
     detail = 'project'
     view = 'overview'
     history.pushState(null, '', '/')
@@ -692,6 +697,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     view = 'overview'
     taskId = null
     taskDetail = null
+    projectBurndown = null
     projectKeys = []
     await loadProject()
     syncExpanded()
@@ -785,6 +791,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   const setView = async (v: 'overview' | 'pipeline' | 'matrix' | 'settings') => {
     view = v
     if (v === 'matrix' && projectId) matrixData = await api.matrix(projectId)
+    if (v === 'pipeline' && projectId) await loadProject()
     syncUrl()
     render()
   }
@@ -1278,7 +1285,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   const renderMatrix = () => renderFeatureMatrix(matrixData)
 
   const renderBurndown = (phase: Phase | null) => {
-    const b = phase ? burndownCache.get(phase.id) : undefined
+    const b = phase ? burndownCache.get(phase.id) : projectBurndown
     const counts = phase ? phase.counts : { done: data!.counts.done, total: data!.counts.total }
     const pct = counts.total ? Math.round((counts.done / counts.total) * 100) : 0
     const heading = `<div class="ws-burndown-top-head"><h3>Burndown${phase ? ` · ${escapeHtml(phase.name)}` : ' · all phases'}</h3></div>`
