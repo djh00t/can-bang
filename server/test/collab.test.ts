@@ -1,14 +1,14 @@
 import request from 'supertest'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { makeCtx, anonDoc, HQ, type TestCtx } from './helpers.js'
+import { closeCtx, makeCtx, anonDoc, HQ, type TestCtx } from './helpers.js'
 
 describe('collaboration', () => {
   let ctx: TestCtx
-  beforeEach(() => {
-    ctx = makeCtx()
+  beforeEach(async () => {
+    ctx = await makeCtx()
   })
-  afterEach(() => {
-    ctx.db.close()
+  afterEach(async () => {
+    await closeCtx(ctx)
   })
 
   it('appends chat messages to the chat fence with a server-stamped kind', async () => {
@@ -17,13 +17,29 @@ describe('collaboration', () => {
       .post(`/api/docs/${id}/chat/message`)
       .set('x-share-key', key)
       .send({ text: 'on it', author: 'builder-1' })
-    expect(res.status).toBe(200)
+    expect(res.status, `${res.status} ${res.text} ${JSON.stringify(res.headers)}`).toBe(200)
     const content = await request(ctx.app).get(`/api/docs/${id}/content`).set('x-share-key', key)
     expect(content.text).toContain('@builder-1 (guest): on it')
     const events = await request(ctx.app).get(`/api/docs/${id}/events`).set('x-share-key', key)
     const chatEvent = events.body.events.find((e: { type: string }) => e.type === 'chat.message')
     expect(chatEvent.payload.kind).toBe('guest')
     expect(chatEvent.payload.text).toBe('on it')
+  })
+
+  it('keeps posted chat inside one closed fence', async () => {
+    const { id, key } = await anonDoc(ctx.app, HQ)
+    const res = await request(ctx.app)
+      .post(`/api/docs/${id}/chat/message`)
+      .set('x-share-key', key)
+      .send({ text: 'on it', author: 'builder-1' })
+    expect(res.status).toBe(200)
+    const content = await request(ctx.app).get(`/api/docs/${id}/content`).set('x-share-key', key)
+    expect(content.text.match(/```chat #general/g)).toHaveLength(1)
+    const opening = content.text.indexOf('```chat #general')
+    const closing = content.text.indexOf('```', opening + '```chat #general'.length)
+    const message = content.text.indexOf('@builder-1 (guest): on it')
+    expect(message).toBeGreaterThan(opening)
+    expect(message).toBeLessThan(closing)
   })
 
   it('updates status fences and logs awaiting-human notifications', async () => {
