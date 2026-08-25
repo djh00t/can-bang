@@ -846,6 +846,31 @@ textarea:focus {
   margin-top: 10px;
 }
 
+.wb-remote-cursors {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.wb-cursor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.12rem 0.45rem;
+  color: var(--ink);
+  background: var(--paper);
+  font-size: 0.75rem;
+}
+
+.wb-cursor-mark {
+  width: 0.45rem;
+  height: 0.75rem;
+  border-radius: 0.1rem;
+  background: var(--accent);
+}
+
 .wb-presence {
   padding: 9px 22px;
   color: var(--muted);
@@ -1381,10 +1406,12 @@ textarea:focus {
 
 .ws-matrix-wrap {
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .ws-matrix {
   width: 100%;
+  min-width: 640px;
   border-collapse: collapse;
   font-size: 12.5px;
 }
@@ -1400,12 +1427,37 @@ textarea:focus {
   vertical-align: bottom;
 }
 
+.ws-matrix th:first-child,
+.ws-matrix td:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--panel);
+}
+
+.ws-matrix th:first-child {
+  z-index: 2;
+}
+
+.ws-matrix td:first-child {
+  z-index: 1;
+}
+
 .ws-matrix td {
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
 }
 
+.ws-matrix-phase {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text);
+}
+
 .ws-matrix-release {
+  display: inline-flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 2px;
   font-family: inherit;
   font-size: 11px;
   background: none;
@@ -1418,6 +1470,15 @@ textarea:focus {
 
 .ws-matrix-release:hover {
   color: var(--accent);
+}
+
+.ws-matrix-no-release {
+  color: var(--muted);
+  cursor: default;
+}
+
+.ws-matrix-no-release:hover {
+  color: var(--muted);
 }
 
 .ws-release-detail {
@@ -1749,6 +1810,33 @@ textarea:focus {
   max-height: 220px;
 }
 
+.ws-agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ws-agent-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.ws-agent-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.ws-agent-ident {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .ws-modal-overlay {
   position: fixed;
   inset: 0;
@@ -1841,6 +1929,34 @@ textarea:focus {
 }
 
 @media (max-width: 900px) {
+  .ws-topbar {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+  }
+
+  .ws-top-left {
+    flex: 1 1 220px;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+  }
+
+  .ws-top-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .ws-project-head > .ws-tabs {
+    flex-basis: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .ws-project-head > .ws-tabs .ws-tab {
+    flex: 0 0 auto;
+  }
+
   .ws-shell {
     grid-template-columns: 1fr;
   }
@@ -1858,5 +1974,13 @@ textarea:focus {
 
   .ws-board {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .ws-matrix {
+    min-width: 560px;
+  }
+
+  .ws-main {
+    padding: 16px 12px;
   }
 }
