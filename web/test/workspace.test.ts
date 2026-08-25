@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   parseWorkspaceRoute,
   renderAgentPromptModal,
+  renderProjectSettingsPanel,
   workspaceAncestorKeys,
   workspacePathFor,
 } from '../src/workspace.js'
@@ -58,4 +59,25 @@ test('uses the release detail phase instead of stale route state', () => {
     'project:project-1',
     'phase:phase-actual',
   ])
+})
+
+test('renders escaped project settings with GitHub and one-time key controls', () => {
+  const html = renderProjectSettingsPanel({
+    id: 'project-1',
+    name: '<Project>',
+    description: 'A useful project',
+    docId: 'doc/1',
+    docTitle: 'HQ',
+    github: { enabled: false, repo: null, syncEnabled: false },
+  })
+
+  assert.match(html, /Project settings/)
+  assert.match(html, /value="&lt;Project&gt;"/)
+  assert.match(html, /A useful project/)
+  assert.match(html, /href="\/d\/doc%2F1"/)
+  assert.match(html, /GitHub Issues sync/)
+  assert.match(html, /id="enable-github"/)
+  assert.match(html, /id="mint-project-key"/)
+  assert.match(html, /secret is shown once/)
+  assert.doesNotMatch(html, /<Project>/)
 })
