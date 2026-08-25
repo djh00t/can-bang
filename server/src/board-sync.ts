@@ -299,7 +299,7 @@ export function reindexBoard(
     const board = parseBoard(fence.body)
     let insertedTaskMarkers = 0
     for (const card of board.cards) {
-      const status = COLUMN_STATUS[card.column.trim().toLowerCase()] ?? 'todo'
+      const rawStatus = COLUMN_STATUS[card.column.trim().toLowerCase()] ?? 'todo'
       const taskId = card.fields.task
       const phaseId =
         phaseByName.get((card.fields.phase ?? '').trim().toLowerCase()) ?? phases[0]?.id
@@ -316,16 +316,36 @@ export function reindexBoard(
       const workflow = card.fields.workflow?.trim() || null
       const scenarios = card.fields.scenarios?.trim() || null
       const dependencies = card.fields.dependencies?.trim() || null
+      const specOk = Boolean(acceptance?.trim() && doneMeans?.trim())
+      // Minimum spec is enforced here too: a card born or moved into Doing
+      // without acceptance criteria and done-means is demoted to Todo so it
+      // cannot be claimed through the doc fence (mirror of the HTTP 422 gate).
+      let status = rawStatus
+      if (!specOk && status === 'doing') status = 'todo'
       if (taskId && existing.has(taskId)) {
         seen.add(taskId)
         const t = existing.get(taskId)!
         let changed = false
         if (t.status !== status) {
-          db.prepare('UPDATE tasks SET status=? WHERE id=?').run(status, taskId)
-          db.prepare(
-            'INSERT INTO task_events (task_id, phase_id, status, ts) VALUES (?,?,?,?)',
-          ).run(taskId, t.phase_id, status, now())
-          logActivity(db, taskId, 'status', 'doc', `moved to ${status}`)
+          if (rawStatus === 'doing' && status === 'todo') {
+            db.prepare('UPDATE tasks SET status=? WHERE id=?').run('todo', taskId)
+            db.prepare(
+              'INSERT INTO task_events (task_id, phase_id, status, ts) VALUES (?,?,?,?)',
+            ).run(taskId, t.phase_id, 'todo', now())
+            logActivity(
+              db,
+              taskId,
+              'spec',
+              'doc',
+              'demoted to todo: missing acceptance criteria or done-means',
+            )
+          } else {
+            db.prepare('UPDATE tasks SET status=? WHERE id=?').run(status, taskId)
+            db.prepare(
+              'INSERT INTO task_events (task_id, phase_id, status, ts) VALUES (?,?,?,?)',
+            ).run(taskId, t.phase_id, status, now())
+            logActivity(db, taskId, 'status', 'doc', `moved to ${status}`)
+          }
           changed = true
         }
         if (title && title !== t.title) {
@@ -347,42 +367,52 @@ export function reindexBoard(
         }
         if (feature !== (t.feature ?? null)) {
           db.prepare('UPDATE tasks SET feature=? WHERE id=?').run(feature, taskId)
+          logActivity(db, taskId, 'spec', 'doc', 'updated feature via board')
           changed = true
         }
         if (doneMeans !== (t.done_means ?? null)) {
           db.prepare('UPDATE tasks SET done_means=? WHERE id=?').run(doneMeans, taskId)
+          logActivity(db, taskId, 'spec', 'doc', 'updated done-means via board')
           changed = true
         }
         if (priority !== (t.priority ?? null)) {
           db.prepare('UPDATE tasks SET priority=? WHERE id=?').run(priority, taskId)
+          logActivity(db, taskId, 'spec', 'doc', 'updated priority via board')
           changed = true
         }
         if (acceptance !== (t.acceptance ?? null)) {
           db.prepare('UPDATE tasks SET acceptance=? WHERE id=?').run(acceptance, taskId)
+          logActivity(db, taskId, 'spec', 'doc', 'updated acceptance via board')
           changed = true
         }
         if (context !== (t.context ?? null)) {
           db.prepare('UPDATE tasks SET context=? WHERE id=?').run(context, taskId)
+          logActivity(db, taskId, 'spec', 'doc', 'updated context via board')
           changed = true
         }
         if (description !== (t.description ?? null)) {
           db.prepare('UPDATE tasks SET description=? WHERE id=?').run(description, taskId)
+          logActivity(db, taskId, 'spec', 'doc', 'updated description via board')
           changed = true
         }
         if (contract !== (t.contract ?? null)) {
           db.prepare('UPDATE tasks SET contract=? WHERE id=?').run(contract, taskId)
+          logActivity(db, taskId, 'spec', 'doc', 'updated contract via board')
           changed = true
         }
         if (workflow !== (t.workflow ?? null)) {
           db.prepare('UPDATE tasks SET workflow=? WHERE id=?').run(workflow, taskId)
+          logActivity(db, taskId, 'spec', 'doc', 'updated workflow via board')
           changed = true
         }
         if (scenarios !== (t.scenarios ?? null)) {
           db.prepare('UPDATE tasks SET scenarios=? WHERE id=?').run(scenarios, taskId)
+          logActivity(db, taskId, 'spec', 'doc', 'updated scenarios via board')
           changed = true
         }
         if (dependencies !== (t.dependencies ?? null)) {
           db.prepare('UPDATE tasks SET dependencies=? WHERE id=?').run(dependencies, taskId)
+          logActivity(db, taskId, 'spec', 'doc', 'updated dependencies via board')
           changed = true
         }
         if (changed) updated++

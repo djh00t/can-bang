@@ -413,7 +413,7 @@ describe('workspace hierarchy', () => {
       content.slice(0, fenceStart) +
       '```board #tickets\n## Doing\n- [>] Claim me\n  task: ' +
       taskId +
-      '\n  phase: P1\n## Todo\n## Testing\n## Done\n```' +
+      '\n  phase: P1\n  acceptance: works end to end\n  done-means: verified by a human\n## Todo\n## Testing\n## Done\n```' +
       content.slice(fenceEnd + 3)
     const version = (await agent.get(`/api/docs/${docId}/content`)).headers[
       'x-doc-version'
@@ -817,5 +817,127 @@ describe('workspace hierarchy', () => {
     expect(messages).toContain('PR: https://github.com/djh00t/can-bang/pull/31')
     expect(messages.some((m: string) => m.includes('Tester: flaky on first run'))).toBe(true)
     expect(detail.body.activity.length).toBe(6)
+  })
+
+  it('demotes spec-less fence cards out of Doing and logs the reason', async () => {
+    const { agent } = await account(ctx.app, 'demote-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'Demote' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const overview = await agent.get(`/api/projects/${pid}`)
+    const docId = overview.body.project.docId as string
+
+    // An agent adds a card directly into Doing with no acceptance/done-means.
+    let content = (await agent.get(`/api/docs/${docId}/content`)).text
+    content = content.replace('## Doing\n', '## Doing\n- [>] No spec card\n  phase: P1\n')
+    const version = (await agent.get(`/api/docs/${docId}/content`)).headers[
+      'x-doc-version'
+    ] as string
+    const put = await agent
+      .put(`/api/docs/${docId}/content`)
+      .set('if-match', version)
+      .send({ content })
+    expect(put.status).toBe(200)
+
+    const after = await agent.get(`/api/projects/${pid}`)
+    const card = after.body.tasks.find((t: { title: string }) => t.title === 'No spec card')
+    expect(card).toBeTruthy()
+    expect(card.status).toBe('todo')
+
+    // An existing spec-complete card moved to Doing via the fence stays Doing.
+    const done = await agent
+      .post(`/api/phases/${phaseId}/tasks`)
+      .send({ title: 'Spec done', ...MIN_SPEC })
+    const doneId = done.body.task.id as string
+    content = (await agent.get(`/api/docs/${docId}/content`)).text
+    const fenceStart = content.indexOf('```board')
+    const fenceEnd = content.indexOf('```', fenceStart + 3)
+    content =
+      content.slice(0, fenceStart) +
+      '```board #tickets\n## Doing\n- [>] Spec done\n  task: ' +
+      doneId +
+      '\n  phase: P1\n  acceptance: works end to end\n  done-means: verified by a human\n## Todo\n## Testing\n## Done\n```' +
+      content.slice(fenceEnd + 3)
+    const version2 = (await agent.get(`/api/docs/${docId}/content`)).headers[
+      'x-doc-version'
+    ] as string
+    await agent.put(`/api/docs/${docId}/content`).set('if-match', version2).send({ content })
+    const after2 = await agent.get(`/api/projects/${pid}`)
+    expect(after2.body.tasks.find((t: { id: string }) => t.id === doneId).status).toBe('doing')
+    const detail = await agent.get(`/api/tasks/${doneId}`)
+    expect(
+      detail.body.activity.some((a: { message: string }) => a.message.includes('moved to doing')),
+    ).toBe(true)
+  })
+
+  it('blocks claims until declared dependencies are done', async () => {
+    const { agent } = await account(ctx.app, 'dep-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'Deps' })).body.project.id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const dep = await agent
+      .post(`/api/phases/${phaseId}/tasks`)
+      .send({ title: 'Prereq', ...MIN_SPEC })
+    const depId = dep.body.task.id as string
+    const card = await agent
+      .post(`/api/phases/${phaseId}/tasks`)
+      .send({ title: 'Dependent', dependencies: depId, ...MIN_SPEC })
+    const cardId = card.body.task.id as string
+
+    const blocked = await agent.patch(`/api/tasks/${cardId}`).send({ status: 'doing' })
+    expect(blocked.status).toBe(422)
+    expect(blocked.body.error).toBe('dependencies not done')
+    const missing = await agent.patch(`/api/tasks/${cardId}`).send({ dependencies: 'no-such-task' })
+    expect(missing.status).toBe(200)
+    const blocked2 = await agent.patch(`/api/tasks/${cardId}`).send({ status: 'doing' })
+    expect(blocked2.status).toBe(422)
+
+    await agent.patch(`/api/tasks/${cardId}`).send({ dependencies: depId })
+    await agent.patch(`/api/tasks/${depId}`).send({ status: 'done' })
+    const allowed = await agent.patch(`/api/tasks/${cardId}`).send({ status: 'doing' })
+    expect(allowed.status).toBe(200)
+  })
+
+  it('logs board-driven spec edits and blocker patches in the activity history', async () => {
+    const { agent } = await account(ctx.app, 'boardlog-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'BoardLog' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const task = await agent
+      .post(`/api/phases/${phaseId}/tasks`)
+      .send({ title: 'Board log', ...MIN_SPEC })
+    const taskId = task.body.task.id as string
+
+    // A fence edit to acceptance is absorbed and logged.
+    const overview = await agent.get(`/api/projects/${pid}`)
+    const docId = overview.body.project.docId as string
+    let content = (await agent.get(`/api/docs/${docId}/content`)).text
+    content = content.replace(
+      `  acceptance: ${MIN_SPEC.acceptance}`,
+      '  acceptance: changed through the doc board',
+    )
+    const version = (await agent.get(`/api/docs/${docId}/content`)).headers[
+      'x-doc-version'
+    ] as string
+    await agent.put(`/api/docs/${docId}/content`).set('if-match', version).send({ content })
+    await agent.get(`/api/projects/${pid}`)
+    const detail = await agent.get(`/api/tasks/${taskId}`)
+    expect(detail.body.task.acceptance).toBe('changed through the doc board')
+    expect(
+      detail.body.activity.some((a: { message: string }) =>
+        a.message.includes('updated acceptance via board'),
+      ),
+    ).toBe(true)
+
+    // A blocker patch is recorded in the activity history.
+    await agent.patch(`/api/tasks/${taskId}`).send({ blockers: 'needs token scope' })
+    const detail2 = await agent.get(`/api/tasks/${taskId}`)
+    expect(
+      detail2.body.activity.some((a: { message: string }) =>
+        a.message.includes('updated blockers'),
+      ),
+    ).toBe(true)
   })
 })

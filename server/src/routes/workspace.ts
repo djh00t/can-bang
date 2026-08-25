@@ -1069,6 +1069,34 @@ state: building
           'A task needs acceptance criteria and done-means before it can be claimed (moved to Doing). Add them first.',
         )
       }
+      const effectiveDependencies = dependencies !== undefined ? dependencies : task.dependencies
+      if (status === 'doing' && effectiveDependencies?.trim()) {
+        const projectId = (
+          db.prepare('SELECT project_id FROM phases WHERE id=?').get(task.phase_id) as {
+            project_id: string
+          }
+        ).project_id
+        const blocked: string[] = []
+        for (const dep of effectiveDependencies.split(/[,;\n]+/)) {
+          const ref = dep.trim()
+          if (!ref) continue
+          const resolved = db
+            .prepare(
+              `SELECT t.id, t.status FROM tasks t JOIN phases ph ON ph.id=t.phase_id
+               WHERE ph.project_id=? AND (t.id=? OR lower(t.title)=lower(?))`,
+            )
+            .get(projectId, ref, ref) as { id: string; status: string } | undefined
+          if (!resolved) blocked.push(`${ref} (not found)`)
+          else if (resolved.status !== 'done') blocked.push(`${ref} (${resolved.status})`)
+        }
+        if (blocked.length) {
+          throw new ApiError(
+            422,
+            'dependencies not done',
+            `Finish these dependencies before claiming: ${blocked.join(', ')}`,
+          )
+        }
+      }
       const author = accountUsername(db, accountId)
       if (status && status !== task.status) {
         recordTaskEvent(db, task.id, task.phase_id, status, now())
@@ -1088,6 +1116,7 @@ state: building
         workflow,
         scenarios,
         dependencies,
+        blockers,
       }
       for (const [field, value] of Object.entries(specFields)) {
         if (value === undefined) continue

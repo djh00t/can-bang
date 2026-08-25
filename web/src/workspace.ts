@@ -1841,12 +1841,11 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       'Tester findings — what failed? These are logged on the task and the card moves back to Doing:',
     )
     if (notes === null) return
-    if (notes.trim()) {
-      await api.postTaskActivity(taskId, {
-        kind: 'comment',
-        message: `Tester findings — rework requested:\n${notes.trim()}`,
-      })
-    }
+    if (!notes.trim()) return
+    await api.postTaskActivity(taskId, {
+      kind: 'comment',
+      message: `Tester findings — rework requested:\n${notes.trim()}`,
+    })
     await api.patchTask(taskId, { status: 'doing' })
     if (phaseId) burndownCache.delete(phaseId)
     taskDetail = await api.taskDetail(taskId)
