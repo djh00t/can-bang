@@ -49,6 +49,12 @@ type ProjectData = {
     blockers: string | null
     docId: string | null
     priority: string | null
+    acceptance: string | null
+    context: string | null
+    contract: string | null
+    workflow: string | null
+    scenarios: string | null
+    dependencies: string | null
   }[]
   counts: { total: number; done: number; doing: number; testing: number; todo: number }
 }
@@ -255,6 +261,7 @@ function openModal(opts: {
     required?: boolean
     placeholder?: string
     type?: string
+    rows?: number
     checked?: boolean
     options?: string[]
   }[]
@@ -273,7 +280,9 @@ function openModal(opts: {
                   ${
                     f.type === 'select'
                       ? `<select name="${f.name}">${(f.options ?? []).map((o) => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join('')}</select>`
-                      : `<input name="${f.name}" type="${f.type ?? 'text'}" ${f.required ? 'required' : ''} ${f.checked ? 'checked' : ''} placeholder="${escapeHtml(f.placeholder ?? '')}" />`
+                      : f.type === 'textarea'
+                        ? `<textarea name="${f.name}" rows="${f.rows ?? 3}" ${f.required ? 'required' : ''} placeholder="${escapeHtml(f.placeholder ?? '')}"></textarea>`
+                        : `<input name="${f.name}" type="${f.type ?? 'text'}" ${f.required ? 'required' : ''} ${f.checked ? 'checked' : ''} placeholder="${escapeHtml(f.placeholder ?? '')}" />`
                   }</label>`,
             )
             .join('')}
@@ -330,11 +339,13 @@ export function renderPipelineCard(
     assignee: string | null
     feature: string | null
     priority: string | null
+    acceptance: string | null
+    done_means: string | null
   },
   releaseName?: string,
 ): string {
   return `<div class="board-card ${task.status}" data-open-task="${task.id}" data-status="${task.status}">
-    <span class="card-text">${escapeHtml(task.title)}</span>
+    <span class="card-text">${escapeHtml(task.title)}${!task.acceptance?.trim() || !task.done_means?.trim() ? '<span class="chip warn" title="Needs acceptance criteria and done-means">⚠ spec</span>' : ''}</span>
     <span class="card-meta">${task.priority ? `<span class="chip priority-${escapeHtml(task.priority)}">${escapeHtml(task.priority)}</span>` : ''}${releaseName ? `<span class="chip release">🚀 ${escapeHtml(releaseName)}</span>` : ''}${task.assignee ? `<span class="chip assignee">@${escapeHtml(task.assignee)}</span>` : ''}${task.feature ? `<span class="chip tag">${escapeHtml(task.feature)}</span>` : ''}</span>
   </div>`
 }
@@ -1342,16 +1353,29 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     if (!t) return '<span class="muted">loading…</span>'
     const release = data?.releases.find((r) => r.phaseId === t.phase.id) ?? null
     const specSections: [string, string | null][] = [
-      ['Acceptance criteria', t.task.acceptance],
-      ['Context', t.task.context],
-      ['Done means', t.task.done_means],
       ['Description', t.task.description],
+      ['Context', t.task.context],
+      ['Acceptance criteria', t.task.acceptance],
+      ['Scenarios (BDD)', t.task.scenarios],
+      ['Contract / Schema', t.task.contract],
+      ['Workflow', t.task.workflow],
+      ['Dependencies', t.task.dependencies],
+      ['Done means', t.task.done_means],
       ['Blockers', t.task.blockers],
     ]
+    const missingSpec = [
+      !t.task.acceptance?.trim() && 'acceptance criteria',
+      !t.task.done_means?.trim() && 'done-means',
+    ].filter(Boolean)
     return `
       <div class="ws-task-detail panel">
         <button class="btn sm" data-close-task>← Back</button>
         <h2>${escapeHtml(t.task.title)}</h2>
+        ${
+          missingSpec.length
+            ? `<div class="ws-spec-warn">⚠ Needs a minimum spec before it can be claimed: ${missingSpec.join(', ')}. <button class="btn sm" data-edit-task="acceptance">Add acceptance</button> <button class="btn sm" data-edit-task="done_means">Add done-means</button></div>`
+            : ''
+        }
         <div class="ws-task-meta">
           <span class="chip">${escapeHtml(t.task.status)}</span>
           ${t.task.priority ? `<span class="chip priority-${escapeHtml(t.task.priority)}">${escapeHtml(t.task.priority)}</span>` : ''}
@@ -1367,6 +1391,11 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
                 `<button class="btn sm ${t.task.status === s ? 'primary' : ''}" data-set-status="${s}">${s}</button>`,
             )
             .join('')}
+          ${
+            t.task.status === 'testing'
+              ? `<button class="btn sm warn" data-rework-task>↩ Send back for rework</button>`
+              : ''
+          }
         </div>
         <div class="ws-task-body">
           ${
@@ -1387,6 +1416,28 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
             ${t.task.docId ? `<a class="btn sm" href="/d/${encodeURIComponent(t.task.docId)}">Open doc · ${escapeHtml(t.task.docTitle ?? 'linked')}</a>` : '<span class="muted">None linked</span>'}
           </section>
         </div>
+        <section class="ws-field">
+          <h4>Activity</h4>
+          <div class="ws-activity">
+            ${
+              (t.activity ?? []).length
+                ? t.activity
+                    .map(
+                      (a) => `<div class="ws-activity-row">
+                        <span class="tag">${escapeHtml(a.kind)}</span>
+                        <span class="muted small">${escapeHtml(a.author ?? 'system')} · ${new Date(a.created_at).toLocaleString()}</span>
+                        <div class="markdown-body">${renderMarkdown(a.message)}</div>
+                      </div>`,
+                    )
+                    .join('')
+                : '<span class="muted small">No activity yet.</span>'
+            }
+          </div>
+          <div class="ws-task-comment">
+            <textarea id="task-comment-input" rows="2" placeholder="Comment or log an action on this task (e.g. PR link, tester findings, decision)"></textarea>
+            <button class="btn sm" data-task-comment>Add comment / log action</button>
+          </div>
+        </section>
         <div class="ws-drawer-actions">
           <button class="btn sm" data-link-task-doc>${t.task.docId ? 'Change doc' : 'Link doc'}</button>
           <button class="btn sm" data-edit-task="title">Rename</button>
@@ -1397,6 +1448,10 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
           <button class="btn sm" data-edit-task="acceptance">Acceptance</button>
           <button class="btn sm" data-edit-task="context">Context</button>
           <button class="btn sm" data-edit-task="description">Description</button>
+          <button class="btn sm" data-edit-task="contract">Contract</button>
+          <button class="btn sm" data-edit-task="workflow">Workflow</button>
+          <button class="btn sm" data-edit-task="scenarios">Scenarios</button>
+          <button class="btn sm" data-edit-task="dependencies">Dependencies</button>
           <button class="btn sm" data-edit-task="blockers">Blockers</button>
         </div>
       </div>
@@ -1557,6 +1612,15 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     document.querySelectorAll<HTMLButtonElement>('[data-set-status]').forEach((b) => {
       b.addEventListener('click', () => void setTaskStatus(b.dataset.setStatus!))
     })
+    document.querySelectorAll<HTMLButtonElement>('[data-task-comment]').forEach((b) => {
+      b.addEventListener('click', () => {
+        const input = document.getElementById('task-comment-input') as HTMLTextAreaElement | null
+        void postTaskComment(input?.value ?? '')
+      })
+    })
+    document.querySelectorAll<HTMLButtonElement>('[data-rework-task]').forEach((b) => {
+      b.addEventListener('click', () => void reworkTask())
+    })
     document.querySelectorAll<HTMLButtonElement>('[data-edit-task]').forEach((b) => {
       b.addEventListener('click', () => void editTaskField(b.dataset.editTask!))
     })
@@ -1668,43 +1732,69 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
 
   const addTask = async () => {
     if (!data) return
-    if (!phaseId) {
-      const vals = await openModal({
-        title: 'New task',
-        submit: 'Add task',
-        fields: [
-          {
-            name: 'phase',
-            label: 'Phase',
-            type: 'select',
-            options: data.phases.map((p) => p.name),
-            required: true,
-          },
-          { name: 'title', label: 'Task title', required: true },
-          { name: 'feature', label: 'Feature (for the matrix)' },
-          { name: 'assignee', label: 'Assignee (@name)' },
-        ],
-      })
-      if (!vals) return
-      const phase = data.phases.find((p) => p.name === (vals.phase ?? ''))
-      if (!phase) return
-      await api.createTask(phase.id, {
-        title: (vals.title ?? '').trim(),
-        feature: vals.feature?.trim() || undefined,
-        assignee: vals.assignee?.trim() || undefined,
-      })
-      await loadProject()
-      render()
-      return
-    }
-    const title = prompt('Task title:')
-    if (!title) return
-    const feature = prompt('Feature (for the matrix):') ?? undefined
-    const assignee = prompt('Assignee (@name):') ?? undefined
-    await api.createTask(phaseId, {
-      title,
-      feature: feature || undefined,
-      assignee: assignee || undefined,
+    const vals = await openModal({
+      title: 'New task',
+      submit: 'Add task',
+      fields: [
+        ...(!phaseId
+          ? [
+              {
+                name: 'phase',
+                label: 'Phase',
+                type: 'select',
+                options: data.phases.map((p) => p.name),
+                required: true,
+              },
+            ]
+          : []),
+        { name: 'title', label: 'Task title', required: true },
+        { name: 'feature', label: 'Feature (for the matrix)' },
+        { name: 'assignee', label: 'Assignee (@name)' },
+        {
+          name: 'acceptance',
+          label: 'Acceptance criteria (required)',
+          type: 'textarea',
+          rows: 4,
+          required: true,
+          placeholder:
+            'What must be true for this to be accepted? Gherkin works: Given / When / Then',
+        },
+        {
+          name: 'done_means',
+          label: 'Done means (required)',
+          type: 'textarea',
+          rows: 2,
+          required: true,
+          placeholder: 'How do we know it is done?',
+        },
+        { name: 'description', label: 'Description', type: 'textarea', rows: 3 },
+        { name: 'context', label: 'Context', type: 'textarea', rows: 3 },
+        { name: 'scenarios', label: 'Scenarios (BDD)', type: 'textarea', rows: 3 },
+        { name: 'contract', label: 'Contract / Schema', type: 'textarea', rows: 3 },
+        { name: 'workflow', label: 'Workflow', type: 'textarea', rows: 3 },
+        {
+          name: 'dependencies',
+          label: 'Dependencies (task IDs or titles, comma-separated)',
+          type: 'textarea',
+          rows: 2,
+        },
+      ],
+    })
+    if (!vals) return
+    const targetPhaseId = phaseId ?? data.phases.find((p) => p.name === (vals.phase ?? ''))?.id
+    if (!targetPhaseId) return
+    await api.createTask(targetPhaseId, {
+      title: (vals.title ?? '').trim(),
+      feature: vals.feature?.trim() || undefined,
+      assignee: vals.assignee?.trim() || undefined,
+      acceptance: vals.acceptance?.trim() || undefined,
+      done_means: vals.done_means?.trim() || undefined,
+      description: vals.description?.trim() || undefined,
+      context: vals.context?.trim() || undefined,
+      scenarios: vals.scenarios?.trim() || undefined,
+      contract: vals.contract?.trim() || undefined,
+      workflow: vals.workflow?.trim() || undefined,
+      dependencies: vals.dependencies?.trim() || undefined,
     })
     await loadProject()
     render()
@@ -1759,6 +1849,31 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   const setTaskStatus = async (status: string) => {
     if (!taskId) return
     await api.patchTask(taskId, { status })
+    if (phaseId) burndownCache.delete(phaseId)
+    taskDetail = await api.taskDetail(taskId)
+    await loadProject()
+    render()
+  }
+
+  const postTaskComment = async (message: string) => {
+    if (!taskId || !message.trim()) return
+    await api.postTaskActivity(taskId, { message: message.trim() })
+    taskDetail = await api.taskDetail(taskId)
+    render()
+  }
+
+  const reworkTask = async () => {
+    if (!taskId || !taskDetail) return
+    const notes = prompt(
+      'Tester findings — what failed? These are logged on the task and the card moves back to Doing:',
+    )
+    if (notes === null) return
+    if (!notes.trim()) return
+    await api.postTaskActivity(taskId, {
+      kind: 'comment',
+      message: `Tester findings — rework requested:\n${notes.trim()}`,
+    })
+    await api.patchTask(taskId, { status: 'doing' })
     if (phaseId) burndownCache.delete(phaseId)
     taskDetail = await api.taskDetail(taskId)
     await loadProject()

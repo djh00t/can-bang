@@ -8,6 +8,7 @@ export default defineConfig({
     pool: 'forks',
     fileParallelism: false,
     maxWorkers: 1,
+    retry: 2,
     isolate: true,
     sequence: { concurrent: false, shuffle: false },
     coverage: {

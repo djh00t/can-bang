@@ -534,6 +534,13 @@ a:hover {
   color: #475467;
 }
 
+.chip.warn {
+  background: #fff4e5;
+  color: #b45309;
+  border: 1px solid #f0c36d;
+  margin-left: 6px;
+}
+
 .chip.assignee {
   background: var(--accent-soft);
   color: var(--accent);
@@ -1656,6 +1663,19 @@ select:focus {
   line-height: 1.25;
 }
 
+.ws-spec-warn {
+  background: #fff4e5;
+  border: 1px solid #f0c36d;
+  border-radius: 8px;
+  color: #8a5a00;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .ws-task-meta {
   display: flex;
   align-items: center;
@@ -1700,6 +1720,48 @@ select:focus {
 .ws-task-body .markdown-body ul {
   margin: 6px 0;
   padding-left: 18px;
+}
+
+.ws-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ws-activity-row {
+  border-left: 2px solid var(--border);
+  padding: 2px 0 2px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ws-activity-row .markdown-body {
+  font-size: 13px;
+}
+
+.ws-task-comment {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.ws-task-comment textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.btn.warn {
+  background: #fff4e5;
+  color: #b45309;
+  border: 1px solid #f0c36d;
 }
 
 .ws-stats {

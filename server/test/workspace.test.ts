@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { closeCtx, makeCtx, account, type TestCtx } from './helpers.js'
 import { backfillProjectDocs } from '../src/seed.js'
 
+const MIN_SPEC = { acceptance: 'works end to end', done_means: 'verified by a human' }
+
 describe('workspace hierarchy', () => {
   let ctx: TestCtx
   beforeEach(async () => {
@@ -33,7 +35,7 @@ describe('workspace hierarchy', () => {
     const releaseId = release.body.release.id as string
     const task = await agent
       .post(`/api/phases/${phaseId}/tasks`)
-      .send({ title: 'Build the widget', feature: 'Widgets', assignee: 'builder-1' })
+      .send({ title: 'Build the widget', feature: 'Widgets', assignee: 'builder-1', ...MIN_SPEC })
     expect(task.status).toBe(201)
     const taskId = task.body.task.id as string
     const overview = await agent.get(`/api/projects/${pid}`)
@@ -55,7 +57,9 @@ describe('workspace hierarchy', () => {
     const releaseId = (await agent.post(`/api/phases/${phaseId}/releases`).send({ name: 'B demo' }))
       .body.release.id as string
     const taskId = (
-      await agent.post(`/api/phases/${phaseId}/tasks`).send({ title: 'T', feature: 'F' })
+      await agent
+        .post(`/api/phases/${phaseId}/tasks`)
+        .send({ title: 'T', feature: 'F', ...MIN_SPEC })
     ).body.task.id as string
     const phasePatch = await agent.patch(`/api/phases/${phaseId}`).send({ status: 'active' })
     expect(phasePatch.status).toBe(200)
@@ -106,7 +110,7 @@ describe('workspace hierarchy', () => {
     const task = await request(ctx.app)
       .post(`/api/phases/${phaseId}/tasks`)
       .set(auth)
-      .send({ title: 'Agent task' })
+      .send({ title: 'Agent task', ...MIN_SPEC })
     expect(task.status).toBe(201)
     const taskDetail = await request(ctx.app).get(`/api/tasks/${task.body.task.id}`).set(auth)
     expect(taskDetail.status).toBe(200)
@@ -208,7 +212,7 @@ describe('workspace hierarchy', () => {
     expect(p2Response.status, JSON.stringify(p2Response.body)).toBe(201)
     const p2 = p2Response.body.phase.id as string
     const mkTask = (phaseId: string, title: string, feature: string, status: string) =>
-      agent.post(`/api/phases/${phaseId}/tasks`).send({ title, feature, status })
+      agent.post(`/api/phases/${phaseId}/tasks`).send({ title, feature, status, ...MIN_SPEC })
     await mkTask(p1, 'a', 'Docs', 'done')
     await mkTask(p1, 'b', 'Docs', 'done')
     await mkTask(p2, 'c', 'Docs', 'doing')
@@ -230,9 +234,15 @@ describe('workspace hierarchy', () => {
       .id as string
     const p2 = (await agent.post(`/api/projects/${pid}/phases`).send({ name: '0.2' })).body.phase
       .id as string
-    await agent.post(`/api/phases/${p1}/tasks`).send({ title: 'Open MVP task', status: 'todo' })
-    await agent.post(`/api/phases/${p2}/tasks`).send({ title: 'Done 0.2 task', status: 'done' })
-    await agent.post(`/api/phases/${p2}/tasks`).send({ title: 'Doing 0.2 task', status: 'doing' })
+    await agent
+      .post(`/api/phases/${p1}/tasks`)
+      .send({ title: 'Open MVP task', status: 'todo', ...MIN_SPEC })
+    await agent
+      .post(`/api/phases/${p2}/tasks`)
+      .send({ title: 'Done 0.2 task', status: 'done', ...MIN_SPEC })
+    await agent
+      .post(`/api/phases/${p2}/tasks`)
+      .send({ title: 'Doing 0.2 task', status: 'doing', ...MIN_SPEC })
 
     const burndown = await agent.get(`/api/projects/${pid}/burndown?days=30`)
     expect(burndown.status).toBe(200)
@@ -254,7 +264,9 @@ describe('workspace hierarchy', () => {
     const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'MVP' })).body
       .phase.id as string
     const taskId = (
-      await agent.post(`/api/phases/${phaseId}/tasks`).send({ title: 'Reopen me', status: 'todo' })
+      await agent
+        .post(`/api/phases/${phaseId}/tasks`)
+        .send({ title: 'Reopen me', status: 'todo', ...MIN_SPEC })
     ).body.task.id as string
 
     expect((await agent.patch(`/api/tasks/${taskId}`).send({ status: 'done' })).status).toBe(200)
@@ -297,6 +309,7 @@ describe('workspace hierarchy', () => {
       description: 'desc',
       blockers: 'needs token scope',
       done_means: 'works on retry',
+      acceptance: 'the retry path succeeds',
     })
     const taskId = task.body.task.id as string
     const detail = await agent.get(`/api/tasks/${taskId}`)
@@ -309,7 +322,7 @@ describe('workspace hierarchy', () => {
     const patch = await agent.patch(`/api/tasks/${taskId}`).send({ status: 'done', doc_id: docId })
     expect(patch.status).toBe(200)
     const priorityPatch = await agent.patch(`/api/tasks/${taskId}`).send({ priority: 'low' })
-    expect(priorityPatch.status).toBe(200)
+    expect(priorityPatch.status, JSON.stringify(priorityPatch.body)).toBe(200)
     const detail2 = await agent.get(`/api/tasks/${taskId}`)
     expect(detail2.body.task.docTitle).toBe('Phase doc')
     expect(detail2.body.task.priority).toBe('low')
@@ -335,6 +348,7 @@ describe('workspace hierarchy', () => {
     const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({
       title: 'Clear priority',
       priority: 'high',
+      ...MIN_SPEC,
     })
     const taskId = task.body.task.id as string
     ctx.db.prepare('UPDATE projects SET doc_id=NULL WHERE id=?').run(pid)
@@ -370,7 +384,7 @@ describe('workspace hierarchy', () => {
       .phase.id as string
     const task = await agent
       .post(`/api/phases/${phaseId}/tasks`)
-      .send({ title: 'Build the widget', feature: 'Widgets' })
+      .send({ title: 'Build the widget', feature: 'Widgets', ...MIN_SPEC })
     const taskId = task.body.task.id as string
     const overview = await agent.get(`/api/projects/${pid}`)
     const docId = overview.body.project.docId as string
@@ -387,7 +401,9 @@ describe('workspace hierarchy', () => {
       .phase.id as string
     const release = await agent.post(`/api/phases/${phaseId}/releases`).send({ name: '0.3 demo' })
     expect(release.status).toBe(201)
-    const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({ title: 'Ship the demo' })
+    const task = await agent
+      .post(`/api/phases/${phaseId}/tasks`)
+      .send({ title: 'Ship the demo', ...MIN_SPEC })
     expect(task.status).toBe(201)
     const taskId = task.body.task.id as string
     const overview = await agent.get(`/api/projects/${pid}`)
@@ -419,7 +435,9 @@ describe('workspace hierarchy', () => {
       .id as string
     const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
       .phase.id as string
-    const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({ title: 'Claim me' })
+    const task = await agent
+      .post(`/api/phases/${phaseId}/tasks`)
+      .send({ title: 'Claim me', ...MIN_SPEC })
     const taskId = task.body.task.id as string
     const overview = await agent.get(`/api/projects/${pid}`)
     const docId = overview.body.project.docId as string
@@ -431,7 +449,7 @@ describe('workspace hierarchy', () => {
       content.slice(0, fenceStart) +
       '```board #tickets\n## Doing\n- [>] Claim me\n  task: ' +
       taskId +
-      '\n  phase: P1\n## Todo\n## Testing\n## Done\n```' +
+      '\n  phase: P1\n  acceptance: works end to end\n  done-means: verified by a human\n## Todo\n## Testing\n## Done\n```' +
       content.slice(fenceEnd + 3)
     const version = (await agent.get(`/api/docs/${docId}/content`)).headers[
       'x-doc-version'
@@ -512,7 +530,7 @@ describe('workspace hierarchy', () => {
       .phase.id as string
     const task = await agent
       .post(`/api/phases/${phaseId}/tasks`)
-      .send({ title: 'Finish the release' })
+      .send({ title: 'Finish the release', ...MIN_SPEC })
     const taskId = task.body.task.id as string
     const before = await agent.get(`/api/phases/${phaseId}/burndown?days=30`)
     expect(before.body.current).toBe(1)
@@ -558,7 +576,9 @@ describe('workspace hierarchy', () => {
       .id as string
     const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
       .phase.id as string
-    const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({ title: 'Same-tick task' })
+    const task = await agent
+      .post(`/api/phases/${phaseId}/tasks`)
+      .send({ title: 'Same-tick task', ...MIN_SPEC })
     const taskId = task.body.task.id as string
     const overview = await agent.get(`/api/projects/${pid}`)
     const docId = overview.body.project.docId as string
@@ -590,6 +610,7 @@ describe('workspace hierarchy', () => {
     const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
       .phase.id as string
     const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({
+      ...MIN_SPEC,
       title: 'Spec task',
       acceptance: 'Given the API key is set, the sync runs and posts a PR link',
       context: 'Agents must clear prior task context before claiming this card.',
@@ -655,6 +676,7 @@ describe('workspace hierarchy', () => {
     const acceptance =
       'Given the API key is set\nthe sync posts exactly one PR per card\nand never self-merges'
     const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({
+      ...MIN_SPEC,
       title: 'Multiline spec',
       acceptance,
       context: 'Claimed after the previous card context is closed',
@@ -697,5 +719,261 @@ describe('workspace hierarchy', () => {
     expect(refreshed.acceptance).toBe(
       'Given the API key is set\nthe sync posts exactly one PR per card\nand never self-merges\nor merges someone else’s PR',
     )
+  })
+
+  it('enforces the minimum spec: no claim without acceptance and done-means', async () => {
+    const { agent } = await account(ctx.app, 'minspec-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'MinSpec' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+
+    // Creation without the minimum spec is rejected.
+    const thin = await agent.post(`/api/phases/${phaseId}/tasks`).send({ title: 'Thin task' })
+    expect(thin.status).toBe(422)
+    const partial = await agent
+      .post(`/api/phases/${phaseId}/tasks`)
+      .send({ title: 'Partial task', acceptance: 'only acceptance' })
+    expect(partial.status).toBe(422)
+
+    // A spec-complete task can be created but not claimed until criteria exist;
+    // clearing them later blocks the Doing transition again.
+    const task = await agent
+      .post(`/api/phases/${phaseId}/tasks`)
+      .send({ title: 'Complete task', ...MIN_SPEC })
+    expect(task.status).toBe(201)
+    const taskId = task.body.task.id as string
+    const claim = await agent.patch(`/api/tasks/${taskId}`).send({ status: 'doing' })
+    expect(claim.status).toBe(200)
+    const undo = await agent.patch(`/api/tasks/${taskId}`).send({ done_means: null })
+    expect(undo.status).toBe(200)
+    const redo = await agent.patch(`/api/tasks/${taskId}`).send({ status: 'testing' })
+    expect(redo.status).toBe(200)
+    const blocked = await agent.patch(`/api/tasks/${taskId}`).send({ status: 'doing' })
+    expect(blocked.status).toBe(422)
+  })
+
+  it('round-trips the full task spec contract through the API and the board fence', async () => {
+    const { agent } = await account(ctx.app, 'fullspec-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'FullSpec' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const spec = {
+      title: 'Full spec card',
+      acceptance: 'Given the sync is enabled, the PR posts once per card',
+      done_means: 'verified end to end by a human',
+      context: 'cleared context required before claiming',
+      description: 'Why: agents need a bounded contract to work against.',
+      contract: 'POST /api/phases/:id/tasks requires acceptance and done_means',
+      workflow: '1. write spec\n2. claim\n3. implement\n4. PR',
+      scenarios: 'Scenario: sync posts once\nGiven sync enabled\nWhen card done\nThen one PR',
+      dependencies: 'DEP1, DEP2',
+      priority: 'high',
+    }
+    const task = await agent.post(`/api/phases/${phaseId}/tasks`).send(spec)
+    expect(task.status).toBe(201)
+    const taskId = task.body.task.id as string
+
+    const detail = await agent.get(`/api/tasks/${taskId}`)
+    for (const key of [
+      'acceptance',
+      'done_means',
+      'context',
+      'description',
+      'contract',
+      'workflow',
+      'scenarios',
+      'dependencies',
+      'priority',
+    ]) {
+      expect(detail.body.task[key]).toBe(spec[key as keyof typeof spec])
+    }
+
+    const overview = await agent.get(`/api/projects/${pid}`)
+    const fromList = overview.body.tasks.find((t: { id: string }) => t.id === taskId)
+    expect(fromList.description).toBe(spec.description)
+    expect(fromList.contract).toBe(spec.contract)
+    expect(fromList.dependencies).toBe(spec.dependencies)
+
+    // The doc board fence carries the full spec as indented fields.
+    const docId = overview.body.project.docId as string
+    const doc = await agent.get(`/api/docs/${docId}/content`)
+    expect(doc.text).toContain(
+      '  contract: POST /api/phases/:id/tasks requires acceptance and done_means',
+    )
+    expect(doc.text).toContain('  workflow: 1. write spec\n  2. claim\n  3. implement\n  4. PR')
+    expect(doc.text).toContain('  dependencies: DEP1, DEP2')
+
+    // Patching the spec updates the row and the fence.
+    const patch = await agent
+      .patch(`/api/tasks/${taskId}`)
+      .send({ dependencies: 'DEP3', contract: null })
+    expect(patch.status).toBe(200)
+    const detail2 = await agent.get(`/api/tasks/${taskId}`)
+    expect(detail2.body.task.dependencies).toBe('DEP3')
+    expect(detail2.body.task.contract).toBeNull()
+    const doc2 = await agent.get(`/api/docs/${docId}/content`)
+    expect(doc2.text).toContain('  dependencies: DEP3')
+    expect(doc2.text).not.toContain('  contract: POST')
+  })
+
+  it('logs the full task history: status, assignee, spec, and comments', async () => {
+    const { agent } = await account(ctx.app, 'history-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'History' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const task = await agent
+      .post(`/api/phases/${phaseId}/tasks`)
+      .send({ title: 'Historic card', ...MIN_SPEC })
+    const taskId = task.body.task.id as string
+
+    await agent.patch(`/api/tasks/${taskId}`).send({ status: 'doing' })
+    await agent.patch(`/api/tasks/${taskId}`).send({ assignee: 'builder-1' })
+    await agent.patch(`/api/tasks/${taskId}`).send({ acceptance: 'the retry path succeeds' })
+    const pr = await agent.post(`/api/tasks/${taskId}/activity`).send({
+      kind: 'pr',
+      message: 'PR: https://github.com/djh00t/can-bang/pull/31',
+    })
+    expect(pr.status).toBe(201)
+    const note = await agent
+      .post(`/api/tasks/${taskId}/activity`)
+      .send({ message: 'Tester: flaky on first run, see test/org.test.ts:106' })
+    expect(note.status).toBe(201)
+
+    const detail = await agent.get(`/api/tasks/${taskId}`)
+    const kinds = detail.body.activity.map((a: { kind: string }) => a.kind)
+    const messages = detail.body.activity.map((a: { message: string }) => a.message)
+    expect(kinds[0]).toBe('status')
+    expect(messages[0]).toContain('created as todo')
+    expect(messages).toContain('moved to doing')
+    expect(messages).toContain('assignee → builder-1')
+    expect(messages.some((m: string) => m.includes('updated acceptance'))).toBe(true)
+    expect(messages).toContain('PR: https://github.com/djh00t/can-bang/pull/31')
+    expect(messages.some((m: string) => m.includes('Tester: flaky on first run'))).toBe(true)
+    expect(detail.body.activity.length).toBe(6)
+  })
+
+  it('demotes spec-less fence cards out of Doing and logs the reason', async () => {
+    const { agent } = await account(ctx.app, 'demote-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'Demote' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const overview = await agent.get(`/api/projects/${pid}`)
+    const docId = overview.body.project.docId as string
+
+    // An agent adds a card directly into Doing with no acceptance/done-means.
+    let content = (await agent.get(`/api/docs/${docId}/content`)).text
+    content = content.replace('## Doing\n', '## Doing\n- [>] No spec card\n  phase: P1\n')
+    const version = (await agent.get(`/api/docs/${docId}/content`)).headers[
+      'x-doc-version'
+    ] as string
+    const put = await agent
+      .put(`/api/docs/${docId}/content`)
+      .set('if-match', version)
+      .send({ content })
+    expect(put.status).toBe(200)
+
+    const after = await agent.get(`/api/projects/${pid}`)
+    const card = after.body.tasks.find((t: { title: string }) => t.title === 'No spec card')
+    expect(card).toBeTruthy()
+    expect(card.status).toBe('todo')
+
+    // An existing spec-complete card moved to Doing via the fence stays Doing.
+    const done = await agent
+      .post(`/api/phases/${phaseId}/tasks`)
+      .send({ title: 'Spec done', ...MIN_SPEC })
+    const doneId = done.body.task.id as string
+    content = (await agent.get(`/api/docs/${docId}/content`)).text
+    const fenceStart = content.indexOf('```board')
+    const fenceEnd = content.indexOf('```', fenceStart + 3)
+    content =
+      content.slice(0, fenceStart) +
+      '```board #tickets\n## Doing\n- [>] Spec done\n  task: ' +
+      doneId +
+      '\n  phase: P1\n  acceptance: works end to end\n  done-means: verified by a human\n## Todo\n## Testing\n## Done\n```' +
+      content.slice(fenceEnd + 3)
+    const version2 = (await agent.get(`/api/docs/${docId}/content`)).headers[
+      'x-doc-version'
+    ] as string
+    await agent.put(`/api/docs/${docId}/content`).set('if-match', version2).send({ content })
+    const after2 = await agent.get(`/api/projects/${pid}`)
+    expect(after2.body.tasks.find((t: { id: string }) => t.id === doneId).status).toBe('doing')
+    const detail = await agent.get(`/api/tasks/${doneId}`)
+    expect(
+      detail.body.activity.some((a: { message: string }) => a.message.includes('moved to doing')),
+    ).toBe(true)
+  })
+
+  it('blocks claims until declared dependencies are done', async () => {
+    const { agent } = await account(ctx.app, 'dep-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'Deps' })).body.project.id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const dep = await agent
+      .post(`/api/phases/${phaseId}/tasks`)
+      .send({ title: 'Prereq', ...MIN_SPEC })
+    const depId = dep.body.task.id as string
+    const card = await agent
+      .post(`/api/phases/${phaseId}/tasks`)
+      .send({ title: 'Dependent', dependencies: depId, ...MIN_SPEC })
+    const cardId = card.body.task.id as string
+
+    const blocked = await agent.patch(`/api/tasks/${cardId}`).send({ status: 'doing' })
+    expect(blocked.status).toBe(422)
+    expect(blocked.body.error).toBe('dependencies not done')
+    const missing = await agent.patch(`/api/tasks/${cardId}`).send({ dependencies: 'no-such-task' })
+    expect(missing.status).toBe(200)
+    const blocked2 = await agent.patch(`/api/tasks/${cardId}`).send({ status: 'doing' })
+    expect(blocked2.status).toBe(422)
+
+    await agent.patch(`/api/tasks/${cardId}`).send({ dependencies: depId })
+    await agent.patch(`/api/tasks/${depId}`).send({ status: 'done' })
+    const allowed = await agent.patch(`/api/tasks/${cardId}`).send({ status: 'doing' })
+    expect(allowed.status).toBe(200)
+  })
+
+  it('logs board-driven spec edits and blocker patches in the activity history', async () => {
+    const { agent } = await account(ctx.app, 'boardlog-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'BoardLog' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const task = await agent
+      .post(`/api/phases/${phaseId}/tasks`)
+      .send({ title: 'Board log', ...MIN_SPEC })
+    const taskId = task.body.task.id as string
+
+    // A fence edit to acceptance is absorbed and logged.
+    const overview = await agent.get(`/api/projects/${pid}`)
+    const docId = overview.body.project.docId as string
+    let content = (await agent.get(`/api/docs/${docId}/content`)).text
+    content = content.replace(
+      `  acceptance: ${MIN_SPEC.acceptance}`,
+      '  acceptance: changed through the doc board',
+    )
+    const version = (await agent.get(`/api/docs/${docId}/content`)).headers[
+      'x-doc-version'
+    ] as string
+    await agent.put(`/api/docs/${docId}/content`).set('if-match', version).send({ content })
+    await agent.get(`/api/projects/${pid}`)
+    const detail = await agent.get(`/api/tasks/${taskId}`)
+    expect(detail.body.task.acceptance).toBe('changed through the doc board')
+    expect(
+      detail.body.activity.some((a: { message: string }) =>
+        a.message.includes('updated acceptance via board'),
+      ),
+    ).toBe(true)
+
+    // A blocker patch is recorded in the activity history.
+    await agent.patch(`/api/tasks/${taskId}`).send({ blockers: 'needs token scope' })
+    const detail2 = await agent.get(`/api/tasks/${taskId}`)
+    expect(
+      detail2.body.activity.some((a: { message: string }) =>
+        a.message.includes('updated blockers'),
+      ),
+    ).toBe(true)
   })
 })

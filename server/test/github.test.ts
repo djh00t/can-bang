@@ -38,9 +38,12 @@ describe('github issues sync', () => {
     const pid = (await agent.post('/api/projects').send({ name: 'Sync' })).body.project.id as string
     const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P' })).body.phase
       .id as string
-    await agent
-      .post(`/api/phases/${phaseId}/tasks`)
-      .send({ title: 'Fix import', feature: 'Docs', done_means: 'no errors' })
+    await agent.post(`/api/phases/${phaseId}/tasks`).send({
+      title: 'Fix import',
+      feature: 'Docs',
+      done_means: 'no errors',
+      acceptance: 'imports land without errors',
+    })
     await agent
       .patch(`/api/projects/${pid}/github`)
       .send({ enabled: true, repo: 'djh00t/repo', token: 'ghp_test' })
@@ -67,7 +70,11 @@ describe('github issues sync', () => {
       .id as string
     const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P' })).body.phase
       .id as string
-    const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({ title: 'Ship it' })
+    const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({
+      title: 'Ship it',
+      acceptance: 'the sync ships',
+      done_means: 'verified by a human',
+    })
     await agent.patch(`/api/tasks/${task.body.task.id}`).send({ status: 'done' })
     await agent
       .patch(`/api/projects/${pid}/github`)
@@ -135,7 +142,9 @@ describe('github issues sync', () => {
     const pid = (await agent.post('/api/projects').send({ name: 'PRs' })).body.project.id as string
     const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P' })).body.phase
       .id as string
-    await agent.post(`/api/phases/${phaseId}/tasks`).send({ title: 'Something' })
+    await agent
+      .post(`/api/phases/${phaseId}/tasks`)
+      .send({ title: 'Something', acceptance: 'it works', done_means: 'verified by a human' })
     await agent
       .patch(`/api/projects/${pid}/github`)
       .send({ enabled: true, repo: 'djh00t/can-bang', token: 'ghp_test' })
@@ -170,7 +179,9 @@ describe('github issues sync', () => {
       .id as string
     const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P' })).body.phase
       .id as string
-    await agent.post(`/api/phases/${phaseId}/tasks`).send({ title: 'Something' })
+    await agent
+      .post(`/api/phases/${phaseId}/tasks`)
+      .send({ title: 'Something', acceptance: 'it works', done_means: 'verified by a human' })
     await agent
       .patch(`/api/projects/${pid}/github`)
       .send({ enabled: true, repo: 'djh00t/can-bang', token: 'ghp_test' })

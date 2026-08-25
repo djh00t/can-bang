@@ -392,6 +392,10 @@ const taskSpecFields = {
   acceptance: z.string().max(500).nullable().optional(),
   context: z.string().max(2000).nullable().optional(),
   description: z.string().max(2000).nullable().optional(),
+  contract: z.string().max(2000).nullable().optional(),
+  workflow: z.string().max(2000).nullable().optional(),
+  scenarios: z.string().max(2000).nullable().optional(),
+  dependencies: z.string().max(500).nullable().optional(),
   blockers: z.string().max(500).nullable().optional(),
 }
 
@@ -491,6 +495,14 @@ server.registerTool(
     if (resolved.error) return resultFrom(resolved.error)
     const body = taskBody(spec)
     if (!body.title) return resultFrom(inputError('title required'))
+    const missing = [
+      !String(body.acceptance ?? '').trim() && 'acceptance',
+      !String(body.done_means ?? '').trim() && 'done_means',
+    ].filter(Boolean)
+    if (missing.length)
+      return resultFrom(
+        inputError(`task spec incomplete: add ${missing.join(', ')} before creating`),
+      )
     return resultFrom(
       await jsonRequest(`/api/phases/${encodeURIComponent(resolved.id!)}/tasks`, {
         method: 'POST',
@@ -517,6 +529,33 @@ server.registerTool(
       await jsonRequest(`/api/tasks/${encodeURIComponent(resolved.id!)}`, {
         method: 'PATCH',
         body: taskBody(spec),
+      }),
+    )
+  },
+)
+
+server.registerTool(
+  'post_task_activity',
+  {
+    description:
+      'Log a comment, action, or PR link on a task. Kinds: comment (default), pr, note. The full task history is returned by get_task.',
+    inputSchema: {
+      task: z.string().min(1),
+      message: z.string().min(1).max(2000),
+      kind: z.enum(['comment', 'pr', 'note']).optional(),
+      author: z.string().max(80).optional(),
+    },
+  },
+  async ({ task, message, kind, author }) => {
+    const resolved = resolveEntity(task, [
+      /^\/api\/tasks\/([^/]+)/,
+      /^\/p\/[^/]+\/phase\/[^/]+\/task\/([^/]+)/,
+    ])
+    if (resolved.error) return resultFrom(resolved.error)
+    return resultFrom(
+      await jsonRequest(`/api/tasks/${encodeURIComponent(resolved.id!)}/activity`, {
+        method: 'POST',
+        body: { message, ...(kind ? { kind } : {}), ...(author ? { author } : {}) },
       }),
     )
   },

@@ -284,6 +284,10 @@ CREATE TABLE IF NOT EXISTS tasks (
   priority TEXT,
   acceptance TEXT,
   context TEXT,
+  contract TEXT,
+  workflow TEXT,
+  scenarios TEXT,
+  dependencies TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -294,6 +298,16 @@ CREATE TABLE IF NOT EXISTS task_events (
   status TEXT NOT NULL,
   ts INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS task_activity (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id TEXT NOT NULL REFERENCES tasks(id),
+  kind TEXT NOT NULL DEFAULT 'comment',
+  author TEXT,
+  message TEXT NOT NULL,
+  meta TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_activity_task ON task_activity(task_id, created_at);
 CREATE TABLE IF NOT EXISTS pr_watch (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   project_id TEXT NOT NULL REFERENCES projects(id),
@@ -396,6 +410,10 @@ export function openDb(path: string): Db {
   ensureColumn(db, 'tasks', 'priority', 'priority TEXT')
   ensureColumn(db, 'tasks', 'acceptance', 'acceptance TEXT')
   ensureColumn(db, 'tasks', 'context', 'context TEXT')
+  ensureColumn(db, 'tasks', 'contract', 'contract TEXT')
+  ensureColumn(db, 'tasks', 'workflow', 'workflow TEXT')
+  ensureColumn(db, 'tasks', 'scenarios', 'scenarios TEXT')
+  ensureColumn(db, 'tasks', 'dependencies', 'dependencies TEXT')
   ensureColumn(db, 'releases', 'doc_id', 'doc_id TEXT REFERENCES docs(id)')
   return db
 }
