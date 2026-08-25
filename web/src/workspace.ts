@@ -549,6 +549,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     if (me) {
       return `<button class="btn sm" id="agent-name" title="Set agent name">🤖 Agent</button>
         <button class="btn sm" id="mint-token" title="Mint API token">Token</button>
+        <a class="btn sm" href="/settings">Settings</a>
         <button class="btn sm" id="logout">Log out</button>`
     }
     return `<button class="btn sm" id="signup-btn">Create account</button>

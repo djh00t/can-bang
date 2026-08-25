@@ -352,6 +352,20 @@ export class Api {
     await this.request('/api/me/agent-name', { method: 'POST', body: JSON.stringify({ name }) })
   }
 
+  async templates(): Promise<{
+    templates: {
+      slug: string
+      title: string
+      description: string | null
+      category: string | null
+      builtin?: boolean
+      scope?: string
+    }[]
+  }> {
+    const res = await this.request('/api/templates')
+    return res.json()
+  }
+
   async uploadAsset(
     id: string,
     key: string,
