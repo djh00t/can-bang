@@ -1,15 +1,15 @@
 import request from 'supertest'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { makeCtx, anonDoc, HQ, account, type TestCtx } from './helpers.js'
+import { closeCtx, makeCtx, anonDoc, HQ, account, type TestCtx } from './helpers.js'
 import { escalateAsks } from '../src/routes/asks.js'
 
 describe('asks', () => {
   let ctx: TestCtx
-  beforeEach(() => {
-    ctx = makeCtx()
+  beforeEach(async () => {
+    ctx = await makeCtx()
   })
-  afterEach(() => {
-    ctx.db.close()
+  afterEach(async () => {
+    await closeCtx(ctx)
   })
 
   it('creates, claims atomically, and resolves asks', async () => {
