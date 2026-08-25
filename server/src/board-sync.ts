@@ -21,6 +21,18 @@ function columnName(status: string): string {
   return status[0]!.toUpperCase() + status.slice(1)
 }
 
+function logActivity(
+  db: Db,
+  taskId: string,
+  kind: string,
+  author: string | null,
+  message: string,
+): void {
+  db.prepare(
+    'INSERT INTO task_activity (task_id, kind, author, message, meta, created_at) VALUES (?,?,?,?,?,?)',
+  ).run(taskId, kind, author, message, null, now())
+}
+
 function marker(status: string): string {
   return status === 'doing' ? '[>]' : status === 'done' ? '[x]' : '[ ]'
 }
@@ -84,6 +96,11 @@ export interface CardPatch {
   priority?: string | null
   acceptance?: string | null
   context?: string | null
+  description?: string | null
+  contract?: string | null
+  workflow?: string | null
+  scenarios?: string | null
+  dependencies?: string | null
 }
 
 /** Append a card for a new task into the project doc's board fence (the record). */
@@ -102,6 +119,11 @@ export function appendCard(
     priority?: string | null
     acceptance?: string | null
     context?: string | null
+    description?: string | null
+    contract?: string | null
+    workflow?: string | null
+    scenarios?: string | null
+    dependencies?: string | null
   },
 ): void {
   const doc = readDoc(db, docId)
@@ -119,6 +141,11 @@ export function appendCard(
   if (opts.priority) fields.priority = opts.priority
   if (opts.acceptance) fields.acceptance = opts.acceptance
   if (opts.context) fields.context = opts.context
+  if (opts.description) fields.description = opts.description
+  if (opts.contract) fields.contract = opts.contract
+  if (opts.workflow) fields.workflow = opts.workflow
+  if (opts.scenarios) fields.scenarios = opts.scenarios
+  if (opts.dependencies) fields.dependencies = opts.dependencies
   content = insertBlockAfterHeader(
     content,
     fence,
@@ -184,6 +211,13 @@ export function updateCard(db: Db, docId: string, taskId: string, patch: CardPat
   const priority = patch.priority !== undefined ? patch.priority : (fields.priority ?? null)
   const acceptance = patch.acceptance !== undefined ? patch.acceptance : (fields.acceptance ?? null)
   const context = patch.context !== undefined ? patch.context : (fields.context ?? null)
+  const description =
+    patch.description !== undefined ? patch.description : (fields.description ?? null)
+  const contract = patch.contract !== undefined ? patch.contract : (fields.contract ?? null)
+  const workflow = patch.workflow !== undefined ? patch.workflow : (fields.workflow ?? null)
+  const scenarios = patch.scenarios !== undefined ? patch.scenarios : (fields.scenarios ?? null)
+  const dependencies =
+    patch.dependencies !== undefined ? patch.dependencies : (fields.dependencies ?? null)
   const phaseName = fields.phase ?? ''
   const release = fields.release
   const newCardLine = `- ${marker(newStatus)} ${title}${assignee ? ` @${assignee}` : ''}${feature ? ` #${feature}` : ''}`
@@ -193,6 +227,11 @@ export function updateCard(db: Db, docId: string, taskId: string, patch: CardPat
   if (priority) newFields.priority = priority
   if (acceptance) newFields.acceptance = acceptance
   if (context) newFields.context = context
+  if (description) newFields.description = description
+  if (contract) newFields.contract = contract
+  if (workflow) newFields.workflow = workflow
+  if (scenarios) newFields.scenarios = scenarios
+  if (dependencies) newFields.dependencies = dependencies
   lines.splice(cardIdx, end - cardIdx + 1)
   let content = lines.join('\n')
   const newFence = boardFence(content)
@@ -243,6 +282,11 @@ export function reindexBoard(
         priority: string | null
         acceptance: string | null
         context: string | null
+        description: string | null
+        contract: string | null
+        workflow: string | null
+        scenarios: string | null
+        dependencies: string | null
       }[]
     ).map((t) => [t.id, t]),
   )
@@ -267,6 +311,11 @@ export function reindexBoard(
       const priority = card.fields.priority?.trim() || null
       const acceptance = card.fields.acceptance?.trim() || null
       const context = card.fields.context?.trim() || null
+      const description = card.fields.description?.trim() || null
+      const contract = card.fields.contract?.trim() || null
+      const workflow = card.fields.workflow?.trim() || null
+      const scenarios = card.fields.scenarios?.trim() || null
+      const dependencies = card.fields.dependencies?.trim() || null
       if (taskId && existing.has(taskId)) {
         seen.add(taskId)
         const t = existing.get(taskId)!
@@ -276,6 +325,7 @@ export function reindexBoard(
           db.prepare(
             'INSERT INTO task_events (task_id, phase_id, status, ts) VALUES (?,?,?,?)',
           ).run(taskId, t.phase_id, status, now())
+          logActivity(db, taskId, 'status', 'doc', `moved to ${status}`)
           changed = true
         }
         if (title && title !== t.title) {
@@ -315,15 +365,37 @@ export function reindexBoard(
           db.prepare('UPDATE tasks SET context=? WHERE id=?').run(context, taskId)
           changed = true
         }
+        if (description !== (t.description ?? null)) {
+          db.prepare('UPDATE tasks SET description=? WHERE id=?').run(description, taskId)
+          changed = true
+        }
+        if (contract !== (t.contract ?? null)) {
+          db.prepare('UPDATE tasks SET contract=? WHERE id=?').run(contract, taskId)
+          changed = true
+        }
+        if (workflow !== (t.workflow ?? null)) {
+          db.prepare('UPDATE tasks SET workflow=? WHERE id=?').run(workflow, taskId)
+          changed = true
+        }
+        if (scenarios !== (t.scenarios ?? null)) {
+          db.prepare('UPDATE tasks SET scenarios=? WHERE id=?').run(scenarios, taskId)
+          changed = true
+        }
+        if (dependencies !== (t.dependencies ?? null)) {
+          db.prepare('UPDATE tasks SET dependencies=? WHERE id=?').run(dependencies, taskId)
+          changed = true
+        }
         if (changed) updated++
       } else {
         const id = taskId ?? randomId(14)
         db.prepare(
-          `INSERT INTO tasks (id, phase_id, title, status, assignee, feature, done_means, priority, acceptance, context, created_at, updated_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+          `INSERT INTO tasks (id, phase_id, title, status, assignee, feature, done_means, priority, acceptance, context, description, contract, workflow, scenarios, dependencies, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(id) DO UPDATE SET title=excluded.title, status=excluded.status, assignee=excluded.assignee,
              feature=excluded.feature, done_means=excluded.done_means, priority=excluded.priority,
-             acceptance=excluded.acceptance, context=excluded.context, updated_at=excluded.updated_at`,
+             acceptance=excluded.acceptance, context=excluded.context, description=excluded.description,
+             contract=excluded.contract, workflow=excluded.workflow, scenarios=excluded.scenarios,
+             dependencies=excluded.dependencies, updated_at=excluded.updated_at`,
         ).run(
           id,
           phaseId,
@@ -335,6 +407,11 @@ export function reindexBoard(
           priority,
           acceptance,
           context,
+          description,
+          contract,
+          workflow,
+          scenarios,
+          dependencies,
           now(),
           now(),
         )
@@ -372,6 +449,7 @@ export function reindexBoard(
   for (const id of projectTaskIds) {
     if (!seen.has(id)) {
       db.prepare('DELETE FROM task_events WHERE task_id=?').run(id)
+      db.prepare('DELETE FROM task_activity WHERE task_id=?').run(id)
       db.prepare('DELETE FROM tasks WHERE id=?').run(id)
       removed++
     }

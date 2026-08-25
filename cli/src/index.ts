@@ -153,6 +153,7 @@ Tasks
   mde task new <phaseId> <title> [--status s] [--assignee a] [--feature f] [--priority p]
       [--done-means m] [--acceptance a] [--context c] [--description d] [--blockers b]
   mde task edit <taskId> [same flags; an empty value clears the field]
+  mde task comment <taskId> <text> [--kind comment|pr|note]
 
 Environment: MDE_URL, MDE_TOKEN, MDE_AUTHOR
 `)
@@ -644,6 +645,10 @@ anything needing a human. Ctrl-C to stop.`)
     '--acceptance',
     '--context',
     '--description',
+    '--contract',
+    '--workflow',
+    '--scenarios',
+    '--dependencies',
     '--blockers',
   ] as const
   const taskSpecBody = (): Record<string, string | null> => {
@@ -689,6 +694,22 @@ anything needing a human. Ctrl-C to stop.`)
   }
   if (verb === 'task') {
     const sub = pos(1)
+    if (sub === 'comment') {
+      const id = pos(2)
+      const text = pos(3)
+      if (!id || !text)
+        fail({ status: 400, json: { error: 'task comment <taskId> <text> required' } })
+      const kind = flag('--kind') ?? 'comment'
+      if (!['comment', 'pr', 'note'].includes(kind))
+        fail({ status: 400, json: { error: '--kind must be comment, pr, or note' } })
+      const r = await req('POST', `/api/tasks/${id}/activity`, {
+        message: text,
+        kind,
+      })
+      if (r.status !== 201) fail(r)
+      console.log('logged')
+      return
+    }
     if (sub === 'new' || sub === 'edit') {
       const id = pos(2)
       const title = sub === 'new' ? pos(3) : undefined
@@ -736,6 +757,24 @@ anything needing a human. Ctrl-C to stop.`)
       show('context', t.context)
       show('description', t.description)
       show('blockers', t.blockers)
+      const activity =
+        (
+          body as {
+            activity?: {
+              kind: string
+              author: string | null
+              message: string
+              created_at: number
+            }[]
+          }
+        ).activity ?? []
+      if (activity.length) {
+        console.log('')
+        for (const a of activity)
+          console.log(
+            `[${a.kind}] ${a.author ?? 'system'} ${new Date(a.created_at).toLocaleString()}: ${a.message.replace(/\n/g, ' ')}`,
+          )
+      }
     }
     return
   }

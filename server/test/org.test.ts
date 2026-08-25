@@ -255,7 +255,9 @@ describe('accounts and org', () => {
       .id as string
     const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P' })).body.phase
       .id as string
-    const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({ title: 'Fix the thing' })
+    const task = await agent
+      .post(`/api/phases/${phaseId}/tasks`)
+      .send({ title: 'Fix the thing', acceptance: 'it works', done_means: 'verified by a human' })
     const taskId = task.body.task.id as string
     const overview = await agent.get(`/api/projects/${pid}`)
     await agent

@@ -473,6 +473,12 @@ export class Api {
       blockers: string | null
       docId: string | null
       priority: string | null
+      acceptance: string | null
+      context: string | null
+      contract: string | null
+      workflow: string | null
+      scenarios: string | null
+      dependencies: string | null
     }[]
     counts: { total: number; done: number; doing: number; testing: number; todo: number }
   }> {
@@ -561,6 +567,13 @@ export class Api {
       feature?: string
       done_means?: string
       priority?: string
+      acceptance?: string
+      context?: string
+      description?: string
+      contract?: string
+      workflow?: string
+      scenarios?: string
+      dependencies?: string
     },
   ): Promise<unknown> {
     const res = await this.request(`/api/phases/${phaseId}/tasks`, {
@@ -580,11 +593,28 @@ export class Api {
       blockers?: string | null
       doc_id?: string | null
       priority?: string | null
+      acceptance?: string | null
+      context?: string | null
+      contract?: string | null
+      workflow?: string | null
+      scenarios?: string | null
+      dependencies?: string | null
     },
   ): Promise<unknown> {
     const res = await this.request(`/api/tasks/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
+    })
+    return res.json()
+  }
+
+  async postTaskActivity(
+    id: string,
+    body: { kind?: string; message: string; author?: string },
+  ): Promise<unknown> {
+    const res = await this.request(`/api/tasks/${id}/activity`, {
+      method: 'POST',
+      body: JSON.stringify(body),
     })
     return res.json()
   }
@@ -604,9 +634,21 @@ export class Api {
       priority: string | null
       acceptance: string | null
       context: string | null
+      contract: string | null
+      workflow: string | null
+      scenarios: string | null
+      dependencies: string | null
     }
     phase: { id: string; name: string }
     project: { id: string; name: string }
+    activity: {
+      id: number
+      kind: string
+      author: string | null
+      message: string
+      meta: Record<string, unknown> | null
+      created_at: number
+    }[]
   }> {
     const res = await this.request(`/api/tasks/${id}`)
     return res.json()

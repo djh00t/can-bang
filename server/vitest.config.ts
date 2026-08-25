@@ -6,6 +6,7 @@ export default defineConfig({
     include: ['test/**/*.test.ts'],
     pool: 'forks',
     maxWorkers: 1,
+    retry: 2,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json-summary'],

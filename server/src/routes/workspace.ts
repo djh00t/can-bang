@@ -59,6 +59,10 @@ export interface TaskRow {
   priority: string | null
   acceptance: string | null
   context: string | null
+  contract: string | null
+  workflow: string | null
+  scenarios: string | null
+  dependencies: string | null
   created_at: number
   updated_at: number
 }
@@ -107,6 +111,30 @@ function recordTaskEvent(
     ts,
   )
 }
+
+function recordActivity(
+  db: Db,
+  taskId: string,
+  kind: string,
+  author: string | null,
+  message: string,
+  meta?: Record<string, unknown>,
+): void {
+  db.prepare(
+    'INSERT INTO task_activity (task_id, kind, author, message, meta, created_at) VALUES (?,?,?,?,?,?)',
+  ).run(taskId, kind, author, message, meta ? JSON.stringify(meta) : null, now())
+}
+
+function accountUsername(db: Db, accountId: string): string {
+  return (
+    (
+      db.prepare('SELECT username FROM accounts WHERE id=?').get(accountId) as
+        { username: string } | undefined
+    )?.username ?? 'user'
+  )
+}
+
+const ACTIVITY_KINDS = new Set(['comment', 'pr', 'note'])
 
 function burndown(
   db: Db,
@@ -351,6 +379,10 @@ state: building
           priority: t.priority,
           acceptance: t.acceptance,
           context: t.context,
+          contract: t.contract,
+          workflow: t.workflow,
+          scenarios: t.scenarios,
+          dependencies: t.dependencies,
           description: t.description,
           blockers: t.blockers,
           docId: t.doc_id,
@@ -580,6 +612,11 @@ state: building
           priority: t.priority,
           acceptance: t.acceptance,
           context: t.context,
+          contract: t.contract,
+          workflow: t.workflow,
+          scenarios: t.scenarios,
+          dependencies: t.dependencies,
+          description: t.description,
           docId: t.doc_id,
         })),
       })
@@ -613,6 +650,24 @@ state: building
       const acceptance =
         typeof req.body?.acceptance === 'string' ? req.body.acceptance.slice(0, 500) : null
       const context = typeof req.body?.context === 'string' ? req.body.context.slice(0, 2000) : null
+      const contract =
+        typeof req.body?.contract === 'string' ? req.body.contract.slice(0, 2000) : null
+      const workflow =
+        typeof req.body?.workflow === 'string' ? req.body.workflow.slice(0, 2000) : null
+      const scenarios =
+        typeof req.body?.scenarios === 'string' ? req.body.scenarios.slice(0, 2000) : null
+      const dependencies =
+        typeof req.body?.dependencies === 'string' ? req.body.dependencies.slice(0, 500) : null
+      const missing = [
+        !acceptance?.trim() && 'acceptance',
+        !doneMeans?.trim() && 'done_means',
+      ].filter(Boolean)
+      if (missing.length)
+        throw new ApiError(
+          422,
+          'task spec incomplete',
+          `Every task needs a minimum spec before it can be created. Add: ${missing.join(', ')}`,
+        )
       const project = db
         .prepare('SELECT id, doc_id FROM projects WHERE id=?')
         .get(phase.project_id) as {
@@ -636,12 +691,16 @@ state: building
           priority,
           acceptance,
           context,
+          description,
+          contract,
+          workflow,
+          scenarios,
+          dependencies,
         })
       }
-      // description/blockers/doc link live on the task row (task metadata, not the card)
       db.prepare(
-        `INSERT INTO tasks (id, phase_id, title, status, assignee, feature, done_means, priority, acceptance, context, description, blockers, doc_id, created_at, updated_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO tasks (id, phase_id, title, status, assignee, feature, done_means, priority, acceptance, context, description, contract, workflow, scenarios, dependencies, blockers, doc_id, created_at, updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       ).run(
         id,
         phase.id,
@@ -654,12 +713,17 @@ state: building
         acceptance,
         context,
         description,
+        contract,
+        workflow,
+        scenarios,
+        dependencies,
         blockers,
         taskDocId,
         now(),
         now(),
       )
       recordTaskEvent(db, id, phase.id, status, now())
+      recordActivity(db, id, 'status', null, `created as ${status}`)
       reindexBoard(db, phase.project_id)
       res.status(201).json({ task: { id, title, status } })
     }),
@@ -739,14 +803,75 @@ state: building
           : typeof req.body?.context === 'string'
             ? req.body.context.trim().slice(0, 2000)
             : undefined
-      if (status && status !== task.status)
+      const contract =
+        req.body?.contract === null
+          ? null
+          : typeof req.body?.contract === 'string'
+            ? req.body.contract.trim().slice(0, 2000)
+            : undefined
+      const workflow =
+        req.body?.workflow === null
+          ? null
+          : typeof req.body?.workflow === 'string'
+            ? req.body.workflow.trim().slice(0, 2000)
+            : undefined
+      const scenarios =
+        req.body?.scenarios === null
+          ? null
+          : typeof req.body?.scenarios === 'string'
+            ? req.body.scenarios.trim().slice(0, 2000)
+            : undefined
+      const dependencies =
+        req.body?.dependencies === null
+          ? null
+          : typeof req.body?.dependencies === 'string'
+            ? req.body.dependencies.trim().slice(0, 500)
+            : undefined
+      const effectiveAcceptance = acceptance !== undefined ? acceptance : task.acceptance
+      const effectiveDoneMeans = doneMeans !== undefined ? doneMeans : task.done_means
+      if (status === 'doing' && (!effectiveAcceptance?.trim() || !effectiveDoneMeans?.trim())) {
+        throw new ApiError(
+          422,
+          'task spec incomplete',
+          'A task needs acceptance criteria and done-means before it can be claimed (moved to Doing). Add them first.',
+        )
+      }
+      const author = accountUsername(db, accountId)
+      if (status && status !== task.status) {
         recordTaskEvent(db, task.id, task.phase_id, status, now())
+        recordActivity(db, task.id, 'status', author, `moved to ${status}`)
+      }
+      if (assignee !== undefined && assignee !== task.assignee)
+        recordActivity(db, task.id, 'assignee', author, `assignee → ${assignee ?? 'unassigned'}`)
+      const specFields = {
+        title,
+        feature,
+        priority,
+        done_means: doneMeans,
+        acceptance,
+        context,
+        description,
+        contract,
+        workflow,
+        scenarios,
+        dependencies,
+      }
+      for (const [field, value] of Object.entries(specFields)) {
+        if (value === undefined) continue
+        const before = task[field as keyof TaskRow]
+        const after = value
+        if (String(before ?? '') === String(after ?? '')) continue
+        recordActivity(db, task.id, 'spec', author, `updated ${field}${after ? '' : ' (cleared)'}`)
+      }
       db.prepare(
         `UPDATE tasks SET status=COALESCE(?, status), title=COALESCE(?, title), assignee=COALESCE(?, assignee),
            feature=COALESCE(?, feature), done_means=COALESCE(?, done_means),
            priority=CASE WHEN ? = 1 THEN ? ELSE priority END,
            acceptance=COALESCE(?, acceptance), context=COALESCE(?, context),
-           description=COALESCE(?, description), blockers=COALESCE(?, blockers), doc_id=COALESCE(?, doc_id), updated_at=? WHERE id=?`,
+           description=COALESCE(?, description), contract=COALESCE(?, contract),
+           workflow=COALESCE(?, workflow), scenarios=COALESCE(?, scenarios),
+           dependencies=COALESCE(?, dependencies), blockers=COALESCE(?, blockers),
+           doc_id=COALESCE(?, doc_id), updated_at=? WHERE id=?`,
       ).run(
         status ?? null,
         title ?? null,
@@ -758,6 +883,10 @@ state: building
         acceptance ?? null,
         context ?? null,
         description ?? null,
+        contract ?? null,
+        workflow ?? null,
+        scenarios ?? null,
+        dependencies ?? null,
         blockers ?? null,
         docId ?? null,
         now(),
@@ -781,6 +910,11 @@ state: building
           ...(priority !== undefined ? { priority } : {}),
           ...(acceptance !== undefined ? { acceptance } : {}),
           ...(context !== undefined ? { context } : {}),
+          ...(description !== undefined ? { description } : {}),
+          ...(contract !== undefined ? { contract } : {}),
+          ...(workflow !== undefined ? { workflow } : {}),
+          ...(scenarios !== undefined ? { scenarios } : {}),
+          ...(dependencies !== undefined ? { dependencies } : {}),
         })
       }
       reindexBoard(db, projectRow.project_id)
@@ -804,6 +938,18 @@ state: building
       const project = db
         .prepare('SELECT * FROM projects WHERE id=?')
         .get(phase.project_id) as ProjectRow
+      const activity = db
+        .prepare(
+          'SELECT id, kind, author, message, meta, created_at FROM task_activity WHERE task_id=? ORDER BY created_at ASC',
+        )
+        .all(task.id) as {
+        id: number
+        kind: string
+        author: string | null
+        message: string
+        meta: string | null
+        created_at: number
+      }[]
       res.json({
         task: {
           id: task.id,
@@ -819,10 +965,48 @@ state: building
           priority: task.priority,
           acceptance: task.acceptance,
           context: task.context,
+          contract: task.contract,
+          workflow: task.workflow,
+          scenarios: task.scenarios,
+          dependencies: task.dependencies,
         },
+        activity: activity.map((a) => ({
+          id: a.id,
+          kind: a.kind,
+          author: a.author,
+          message: a.message,
+          meta: a.meta ? JSON.parse(a.meta) : null,
+          created_at: a.created_at,
+        })),
         phase: { id: phase.id, name: phase.name },
         project: { id: project.id, name: project.name },
       })
+    }),
+  )
+
+  r.post(
+    '/api/tasks/:id/activity',
+    asyncHandler((req: Request, res: Response) => {
+      const accountId = accountIdOf(req)
+      const task = db
+        .prepare(
+          `SELECT t.id FROM tasks t JOIN phases ph ON ph.id = t.phase_id JOIN projects pr ON pr.id = ph.project_id
+           WHERE t.id=? AND pr.owner_id=?`,
+        )
+        .get(req.params.id!, accountId) as { id: string } | undefined
+      if (!task) throw notFound('task not found')
+      const message = typeof req.body?.message === 'string' ? req.body.message.trim() : ''
+      if (!message) throw badRequest('message required')
+      const kind =
+        typeof req.body?.kind === 'string' && ACTIVITY_KINDS.has(req.body.kind)
+          ? req.body.kind
+          : 'comment'
+      const author =
+        typeof req.body?.author === 'string'
+          ? req.body.author.slice(0, 80)
+          : accountUsername(db, accountId)
+      recordActivity(db, task.id, kind, author, message.slice(0, 2000))
+      res.status(201).json({ ok: true, activity: { kind, author, message } })
     }),
   )
 
