@@ -74,6 +74,65 @@ describe('workspace hierarchy', () => {
     expect(overview.body.tasks[0].status).toBe('done')
   })
 
+  it('mints project API keys with project-only access', async () => {
+    const { agent } = await account(ctx.app, 'project-key-owner')
+    const projectId = (await agent.post('/api/projects').send({ name: 'Scoped project' })).body
+      .project.id as string
+    const otherProjectId = (await agent.post('/api/projects').send({ name: 'Other project' })).body
+      .project.id as string
+    const phaseId = (await agent.post(`/api/projects/${projectId}/phases`).send({ name: 'MVP' }))
+      .body.phase.id as string
+    const externalDoc = await agent
+      .post('/api/docs')
+      .send({ title: 'External', content: '# External\n' })
+
+    const minted = await agent.post(`/api/projects/${projectId}/api-keys`).send({ label: 'agent' })
+    expect(minted.status).toBe(201)
+    expect(minted.body.key).toMatch(/^pk_[A-Za-z0-9_-]+$/)
+    expect(minted.body.label).toBe('agent')
+    const key = minted.body.key as string
+    const auth = { authorization: `Bearer ${key}` }
+    const keyInfo = await request(ctx.app).get('/api/project-key').set(auth)
+    expect(keyInfo.status).toBe(200)
+    expect(keyInfo.body.projectId).toBe(projectId)
+    const listed = await agent.get(`/api/projects/${projectId}/api-keys`)
+    expect(listed.status).toBe(200)
+    expect(listed.body.keys).toHaveLength(1)
+    expect(listed.body.keys[0].revoked_at).toBeNull()
+
+    const project = await request(ctx.app).get(`/api/projects/${projectId}`).set(auth)
+    expect(project.status).toBe(200)
+    expect(project.body.project.apiKeyCount).toBe(1)
+    const task = await request(ctx.app)
+      .post(`/api/phases/${phaseId}/tasks`)
+      .set(auth)
+      .send({ title: 'Agent task' })
+    expect(task.status).toBe(201)
+    const taskDetail = await request(ctx.app).get(`/api/tasks/${task.body.task.id}`).set(auth)
+    expect(taskDetail.status).toBe(200)
+    const unsafeLink = await request(ctx.app)
+      .patch(`/api/tasks/${task.body.task.id}`)
+      .set(auth)
+      .send({ doc_id: externalDoc.body.doc.id })
+    expect(unsafeLink.status).toBe(403)
+    expect((await request(ctx.app).get(`/api/projects/${otherProjectId}`).set(auth)).status).toBe(
+      404,
+    )
+    expect((await request(ctx.app).get('/api/projects').set(auth)).status).toBe(401)
+    expect((await request(ctx.app).get('/api/me').set(auth)).status).toBe(401)
+    expect(
+      (await request(ctx.app).post(`/api/projects/${projectId}/api-keys`).set(auth)).status,
+    ).toBe(401)
+    const revoked = await agent.delete(
+      `/api/projects/${projectId}/api-keys/${listed.body.keys[0].id}`,
+    )
+    expect(revoked.status).toBe(200)
+    expect((await request(ctx.app).get(`/api/projects/${projectId}`).set(auth)).status).toBe(401)
+    expect(
+      (await agent.get(`/api/projects/${projectId}/api-keys`)).body.keys[0].revoked_at,
+    ).toBeTypeOf('number')
+  })
+
   it('persists project settings, configures GitHub, and mints owner-scoped keys', async () => {
     const { agent: owner } = await account(ctx.app, 'settings-owner')
     const { agent: other } = await account(ctx.app, 'settings-other')

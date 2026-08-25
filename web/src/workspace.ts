@@ -26,6 +26,7 @@ type ProjectData = {
     docId: string | null
     docTitle: string | null
     github: { enabled: boolean; repo: string | null; syncEnabled: boolean }
+    apiKeyCount: number
   }
   phases: Phase[]
   releases: {
@@ -270,6 +271,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   let data: ProjectData | null = null
   let matrixData: MatrixData | null = null
   let releaseDetail: Awaited<ReturnType<Api['releaseDetail']>> | null = null
+  let projectKeys: Awaited<ReturnType<Api['projectKeys']>>['keys'] = []
   let inbox: {
     docId: string
     title: string
@@ -390,6 +392,11 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   const loadProject = async () => {
     if (!projectId) return
     data = await api.project(projectId)
+    try {
+      projectKeys = (await api.projectKeys(projectId)).keys
+    } catch {
+      projectKeys = []
+    }
     if (view === 'matrix') matrixData = await api.matrix(projectId)
     if (phaseId && !burndownCache.has(phaseId)) {
       burndownCache.set(phaseId, await api.phaseBurndown(phaseId))
@@ -405,6 +412,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     taskDetail = null
     releaseDetail = null
     data = null
+    projectKeys = []
     matrixData = null
     detail = 'project'
     view = 'overview'
@@ -420,6 +428,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     view = 'overview'
     taskId = null
     taskDetail = null
+    projectKeys = []
     await loadProject()
     expanded.add(`project:${id}`)
     if (phaseId) expanded.add(`phase:${phaseId}`)
@@ -829,6 +838,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
               }
             </div>
             ${renderGithub()}
+            ${renderProjectKeys()}
             ${renderAgents()}
             ${data!.project.docId ? `<div class="panel"><h3>Project doc</h3><a class="btn sm" href="/d/${encodeURIComponent(data!.project.docId)}">Open · ${escapeHtml(data!.project.docTitle ?? 'project doc')}</a></div>` : ''}
           </div>
@@ -927,6 +937,24 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       <div class="ws-modal-field"><span>Personal access token (repo scope)</span><input id="gh-token" type="password" placeholder="ghp_…" /></div>
       <button class="btn sm" id="enable-github">Enable sync</button>
       <div class="muted small">Tasks push to GitHub issues; issues created from CanBang tasks import back.</div></div>`
+  }
+
+  const renderProjectKeys = () => {
+    const count = data!.project.apiKeyCount
+    const keyRows = projectKeys.length
+      ? projectKeys
+          .map(
+            (key) =>
+              `<div class="muted small"><code>${escapeHtml(key.id)}</code>${key.label ? ` · ${escapeHtml(key.label)}` : ''}${key.revoked_at ? ' · revoked' : ` <button class="btn sm" data-revoke-project-key="${escapeHtml(key.id)}">Revoke</button>`}</div>`,
+          )
+          .join('')
+      : '<div class="muted small">No project keys minted yet.</div>'
+    return `<div class="panel"><h3>Project settings</h3>
+      <div class="muted small">Mint a project-scoped API key for agents. It can read and update this project's workspace, but cannot access account routes or other projects.</div>
+      <div class="ws-modal-actions" style="margin-top:6px"><button class="btn sm" id="mint-project-key">Mint project API key</button><span class="muted small">${count} active key${count === 1 ? '' : 's'}</span></div>
+      <div style="margin-top:6px">${keyRows}</div>
+      <div class="muted small">The secret is shown once after minting. Store it as <code>Authorization: Bearer pk_...</code>.</div>
+    </div>`
   }
 
   const renderAgents = () => {
@@ -1204,6 +1232,15 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     })
     document.getElementById('enable-github')?.addEventListener('click', () => void enableGithub())
     document.getElementById('sync-github')?.addEventListener('click', () => void runGithubSync())
+    document
+      .getElementById('mint-project-key')
+      ?.addEventListener('click', () => void mintProjectKey())
+    document.querySelectorAll<HTMLButtonElement>('[data-revoke-project-key]').forEach((button) => {
+      button.addEventListener(
+        'click',
+        () => void revokeProjectKey(button.dataset.revokeProjectKey!),
+      )
+    })
     document.getElementById('onboard-agent')?.addEventListener('click', () => void onboardAgent())
     document
       .getElementById('create-project-hq')
@@ -1436,6 +1473,50 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     render()
   }
 
+  const mintProjectKey = async () => {
+    if (!projectId) return
+    const labelInput = document.getElementById('project-key-label') as HTMLInputElement | null
+    const status = document.getElementById('project-key-status')
+    const output = document.getElementById('project-key-output')
+    let label = labelInput?.value.trim() ?? ''
+    if (!labelInput) {
+      const asked = prompt('Optional project key label:', 'agent')
+      if (asked === null) return
+      label = asked.trim()
+    }
+    try {
+      const result = await api.createProjectKey(projectId, label || undefined)
+      await loadProject()
+      render()
+      if (output && status) {
+        output.hidden = false
+        output.innerHTML =
+          '<strong>New project key (shown once)</strong><code>' + escapeHtml(result.key) + '</code>'
+        status.textContent = 'Store this secret securely before leaving the page.'
+      } else {
+        openInfoModal(
+          'Project API key',
+          `<p>Copy this key now. It will not be shown again.</p>
+           <div class="ws-modal-field"><span>Authorization header</span><textarea readonly rows="2">Bearer ${escapeHtml(result.key)}</textarea></div>
+           <p class="muted small">This key is scoped to <b>${escapeHtml(data?.project.name ?? 'this project')}</b>. Keep it out of source control and chat logs.</p>`,
+        )
+      }
+    } catch (e) {
+      alert(`Project key mint failed: ${(e as Error).message}`)
+    }
+  }
+
+  const revokeProjectKey = async (keyId: string) => {
+    if (!projectId || !confirm('Revoke this project key? Agents using it will lose access.')) return
+    try {
+      await api.revokeProjectKey(projectId, keyId)
+      await loadProject()
+      render()
+    } catch (e) {
+      alert(`Project key revoke failed: ${(e as Error).message}`)
+    }
+  }
+
   const runGithubSync = async () => {
     if (!projectId) return
     const btn = document.getElementById('sync-github')
@@ -1472,26 +1553,6 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       render()
     } catch (e) {
       if (status) status.textContent = 'Save failed: ' + (e as Error).message
-    }
-  }
-
-  const mintProjectKey = async () => {
-    if (!projectId) return
-    const label = (
-      document.getElementById('project-key-label') as HTMLInputElement | null
-    )?.value.trim()
-    const status = document.getElementById('project-key-status')
-    const output = document.getElementById('project-key-output')
-    try {
-      const result = await api.createProjectKey(projectId, label || undefined)
-      if (output) {
-        output.hidden = false
-        output.innerHTML =
-          '<strong>New project key (shown once)</strong><code>' + escapeHtml(result.key) + '</code>'
-      }
-      if (status) status.textContent = 'Store this secret securely before leaving the page.'
-    } catch (e) {
-      if (status) status.textContent = 'Mint failed: ' + (e as Error).message
     }
   }
 
