@@ -22,12 +22,15 @@ import { dirname, join } from 'node:path'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
+type WsClient = { id: string; name: string; send: (s: string) => void }
+
 async function main(): Promise<void> {
   const config = loadConfig()
   const db = openDb(join(config.dataDir, 'workbench.db'))
   const bus = new EventBus()
 
-  const wsClients = new Map<string, Set<{ name: string; send: (s: string) => void }>>()
+  const wsClients = new Map<string, Set<WsClient>>()
+  let nextClientId = 0
   let services!: AppServices
   const presence = {
     setTyping: (docId: string, name: string) => {
@@ -39,11 +42,13 @@ async function main(): Promise<void> {
   }
   services = new AppServices(db, bus, config, presence)
 
-  function broadcast(docId: string, payload: Record<string, unknown>): void {
+  function broadcast(docId: string, payload: Record<string, unknown>, except?: WsClient): void {
     const clients = wsClients.get(docId)
     if (!clients) return
     const msg = JSON.stringify(payload)
-    for (const c of clients) c.send(msg)
+    for (const c of clients) {
+      if (c !== except) c.send(msg)
+    }
   }
 
   const app = createApp(services)
@@ -85,7 +90,11 @@ async function main(): Promise<void> {
 
   wss.on('connection', (ws: WebSocket, _req: IncomingMessage, docId: string, name: string) => {
     if (!wsClients.has(docId)) wsClients.set(docId, new Set())
-    const client = { name, send: (s: string) => ws.readyState === WebSocket.OPEN && ws.send(s) }
+    const client: WsClient = {
+      id: `ws-${++nextClientId}`,
+      name,
+      send: (s: string) => ws.readyState === WebSocket.OPEN && ws.send(s),
+    }
     wsClients.get(docId)!.add(client)
     const onEvent = (ev: {
       seq: number
@@ -102,7 +111,13 @@ async function main(): Promise<void> {
       try {
         const msg = JSON.parse(raw.toString()) as Record<string, unknown>
         if (msg.type === 'typing') presence.setTyping(docId, name)
-        if (msg.type === 'cursor') broadcast(docId, { type: 'cursor', name, cursor: msg.cursor })
+        if (msg.type === 'cursor') {
+          broadcast(
+            docId,
+            { type: 'cursor', clientId: client.id, name, cursor: msg.cursor },
+            client,
+          )
+        }
         if (msg.type === 'editing') services.debouncedEdited(docId)
       } catch {
         // ignore malformed frames
@@ -110,6 +125,7 @@ async function main(): Promise<void> {
     })
     ws.on('close', () => {
       bus.off(docId, onEvent)
+      broadcast(docId, { type: 'cursor', clientId: client.id, name, cursor: null }, client)
       wsClients.get(docId)?.delete(client)
     })
   })
