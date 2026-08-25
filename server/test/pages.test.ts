@@ -50,8 +50,15 @@ describe('pages, handoff, and 0.3 extras', () => {
     expect(pub.status).toBe(200)
   })
 
-  it('serves matrix release routes for direct navigation and refresh', async () => {
-    for (const path of ['/p/project-1', '/p/project-1/matrix', '/p/project-1/release/release-1']) {
+  it('serves every workspace hierarchy URL for direct navigation and refresh', async () => {
+    for (const path of [
+      '/p/project-1',
+      '/p/project-1/pipeline',
+      '/p/project-1/matrix',
+      '/p/project-1/phase/phase-1',
+      '/p/project-1/phase/phase-1/task/task-1',
+      '/p/project-1/release/release-1',
+    ]) {
       const page = await request(ctx.app).get(path)
       expect(page.status).toBe(200)
       expect(page.headers['content-type']).toContain('text/html')
