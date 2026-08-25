@@ -5,6 +5,7 @@ import {
   navigateToTreeTask,
   parseWorkspaceRoute,
   renderAgentPromptModal,
+  renderPipelineCard,
   renderFeatureMatrix,
   renderProjectTreeLabel,
   renderProjectSettingsPanel,
@@ -28,6 +29,22 @@ test('renders the onboarding modal with escaped prompt and agent link', () => {
   assert.match(html, /id="copy-agent-kickoff">Copy kickoff/)
   assert.match(html, /id="copy-agent-prompt">Copy briefing/)
   assert.doesNotMatch(html, /<this-doc>/)
+})
+
+test('renders the release badge on pipeline cards', () => {
+  const html = renderPipelineCard(
+    {
+      id: 'task-1',
+      title: 'Ship the demo',
+      status: 'doing',
+      assignee: null,
+      feature: null,
+      priority: null,
+    },
+    '0.3 demo',
+  )
+
+  assert.match(html, /class="chip release">🚀 0\.3 demo<\/span>/)
 })
 
 test('renders feature statuses and only links real release columns', () => {

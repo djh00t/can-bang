@@ -322,6 +322,23 @@ export function renderAgentPromptModal(link: string, text: string, kickoff: stri
     </div>`
 }
 
+export function renderPipelineCard(
+  task: {
+    id: string
+    title: string
+    status: string
+    assignee: string | null
+    feature: string | null
+    priority: string | null
+  },
+  releaseName?: string,
+): string {
+  return `<div class="board-card ${task.status}" data-open-task="${task.id}" data-status="${task.status}">
+    <span class="card-text">${escapeHtml(task.title)}</span>
+    <span class="card-meta">${task.priority ? `<span class="chip priority-${escapeHtml(task.priority)}">${escapeHtml(task.priority)}</span>` : ''}${releaseName ? `<span class="chip release">🚀 ${escapeHtml(releaseName)}</span>` : ''}${task.assignee ? `<span class="chip assignee">@${escapeHtml(task.assignee)}</span>` : ''}${task.feature ? `<span class="chip tag">${escapeHtml(task.feature)}</span>` : ''}</span>
+  </div>`
+}
+
 export function renderProjectTreeLabel(
   project: { id: string; name: string; done: number; total: number },
   selected: boolean,
@@ -1090,13 +1107,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
               <h4>${label} <span class="col-count">${phaseTasks.filter((t) => t.status === key).length}</span></h4>
               ${phaseTasks
                 .filter((t) => t.status === key)
-                .map(
-                  (t) =>
-                    `<div class="board-card ${t.status}" data-open-task="${t.id}" data-status="${t.status}">
-                       <span class="card-text">${escapeHtml(t.title)}</span>
-                       <span class="card-meta">${t.priority ? `<span class="chip priority-${escapeHtml(t.priority)}">${escapeHtml(t.priority)}</span>` : ''}${releaseByPhase.get(t.phaseId) ? `<span class="chip release">🚀 ${escapeHtml(releaseByPhase.get(t.phaseId)!)}</span>` : ''}${t.assignee ? `<span class="chip assignee">@${escapeHtml(t.assignee)}</span>` : ''}${t.feature ? `<span class="chip tag">${escapeHtml(t.feature)}</span>` : ''}</span>
-                     </div>`,
-                )
+                .map((t) => renderPipelineCard(t, releaseByPhase.get(t.phaseId)))
                 .join('')}
             </div>`,
             )
