@@ -64,6 +64,69 @@ type MatrixData = {
   rows: { feature: string; cells: { phaseId: string; status: string }[] }[]
 }
 
+export type WorkspaceRoute = {
+  projectId: string | null
+  phaseId: string | null
+  view: 'overview' | 'pipeline' | 'matrix' | 'settings'
+  releaseId: string | null
+  taskId: string | null
+  detail: 'project' | 'release'
+}
+
+export function parseWorkspaceRoute(pathname: string): WorkspaceRoute {
+  const segs = pathname.split('/').filter(Boolean)
+  const route: WorkspaceRoute = {
+    projectId: null,
+    phaseId: null,
+    view: 'overview',
+    releaseId: null,
+    taskId: null,
+    detail: 'project',
+  }
+  if (segs[0] === 'p' && segs[1]) {
+    route.projectId = segs[1]
+    if (segs[2] === 'matrix') route.view = 'matrix'
+    else if (segs[2] === 'pipeline') route.view = 'pipeline'
+    else if (segs[2] === 'settings') route.view = 'settings'
+    else if (segs[2] === 'release' && segs[3]) {
+      route.releaseId = segs[3]
+      route.detail = 'release'
+    } else if (segs[2] === 'phase' && segs[3]) {
+      route.phaseId = segs[3]
+      route.view = 'pipeline'
+      if (segs[4] === 'task' && segs[5]) route.taskId = segs[5]
+    }
+  }
+  return route
+}
+
+export function workspacePathFor(route: WorkspaceRoute): string {
+  if (!route.projectId) return '/'
+  if (route.detail === 'release' && route.releaseId)
+    return `/p/${route.projectId}/release/${route.releaseId}`
+  if (route.view === 'matrix') return `/p/${route.projectId}/matrix`
+  if (route.view === 'settings') return `/p/${route.projectId}/settings`
+  if (route.view === 'overview') return `/p/${route.projectId}`
+  if (route.view === 'pipeline' && !route.phaseId) return `/p/${route.projectId}/pipeline`
+  if (route.phaseId)
+    return route.taskId
+      ? `/p/${route.projectId}/phase/${route.phaseId}/task/${route.taskId}`
+      : `/p/${route.projectId}/phase/${route.phaseId}`
+  return `/p/${route.projectId}`
+}
+
+export function workspaceAncestorKeys(
+  route: WorkspaceRoute,
+  releasePhaseId: string | null = null,
+): string[] {
+  const keys: string[] = []
+  if (route.projectId) keys.push(`project:${route.projectId}`)
+  const phaseId = route.detail === 'release' ? releasePhaseId : route.phaseId
+  if (phaseId) keys.push(`phase:${phaseId}`)
+  if (route.taskId && route.phaseId) keys.push(`tasks:${route.phaseId}`)
+  return keys
+}
+
 export type WorkspaceAgent = {
   id: string
   name: string
@@ -437,52 +500,15 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     return `<button class="ws-chev" data-project-toggle="${escapeHtml(id)}" aria-expanded="${isOpen(key)}" aria-controls="project-children-${escapeHtml(id)}" aria-label="toggle">${isOpen(key) ? '▾' : '▸'}</button>`
   }
 
-  const parseRoute = () => {
-    const segs = location.pathname.split('/').filter(Boolean)
-    const r: {
-      projectId: string | null
-      phaseId: string | null
-      view: 'overview' | 'pipeline' | 'matrix' | 'settings'
-      releaseId: string | null
-      taskId: string | null
-      detail: 'project' | 'release'
-    } = {
-      projectId: null,
-      phaseId: null,
-      view: 'overview',
-      releaseId: null,
-      taskId: null,
-      detail: 'project',
-    }
-    if (segs[0] === 'p' && segs[1]) {
-      r.projectId = segs[1]
-      if (segs[2] === 'matrix') r.view = 'matrix'
-      else if (segs[2] === 'pipeline') r.view = 'pipeline'
-      else if (segs[2] === 'settings') r.view = 'settings'
-      else if (segs[2] === 'release' && segs[3]) {
-        r.releaseId = segs[3]
-        r.detail = 'release'
-      } else if (segs[2] === 'phase' && segs[3]) {
-        r.phaseId = segs[3]
-        r.view = 'pipeline'
-        if (segs[4] === 'task' && segs[5]) r.taskId = segs[5]
-      }
-    }
-    return r
-  }
+  const parseRoute = () => parseWorkspaceRoute(location.pathname)
 
-  const urlFor = () => {
-    if (!projectId) return '/'
-    if (detail === 'release' && releaseId) return `/p/${projectId}/release/${releaseId}`
-    if (view === 'matrix') return `/p/${projectId}/matrix`
-    if (view === 'settings') return `/p/${projectId}/settings`
-    if (view === 'overview') return `/p/${projectId}`
-    if (view === 'pipeline' && !phaseId) return `/p/${projectId}/pipeline`
-    if (phaseId)
-      return taskId
-        ? `/p/${projectId}/phase/${phaseId}/task/${taskId}`
-        : `/p/${projectId}/phase/${phaseId}`
-    return `/p/${projectId}`
+  const urlFor = () => workspacePathFor({ projectId, phaseId, view, releaseId, taskId, detail })
+
+  const syncExpanded = () => {
+    const route: WorkspaceRoute = { projectId, phaseId, view, releaseId, taskId, detail }
+    for (const key of workspaceAncestorKeys(route, releaseDetail?.phase.id ?? null)) {
+      expanded.add(key)
+    }
   }
 
   const syncUrl = (push = true) => {
@@ -598,14 +624,14 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     projectId = id
     phaseId = null
     releaseId = null
+    releaseDetail = null
     detail = 'project'
     view = 'overview'
     taskId = null
     taskDetail = null
     projectKeys = []
     await loadProject()
-    expanded.add(`project:${id}`)
-    if (phaseId) expanded.add(`phase:${phaseId}`)
+    syncExpanded()
     syncUrl()
     render()
   }
@@ -613,13 +639,14 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   const selectPhase = async (id: string, ownerProjectId = projectId) => {
     if (ownerProjectId) projectId = ownerProjectId
     phaseId = id
+    releaseId = null
+    releaseDetail = null
     detail = 'project'
     view = 'pipeline'
     taskId = null
     taskDetail = null
     await loadProject()
-    expanded.add(`project:${projectId ?? ''}`)
-    expanded.add(`phase:${id}`)
+    syncExpanded()
     syncUrl()
     render()
   }
@@ -647,9 +674,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     releaseId = next.releaseId
     taskId = next.taskId
     await loadProject()
-    expanded.add(`project:${projectId ?? ''}`)
-    expanded.add(`phase:${phaseId}`)
-    expanded.add(`tasks:${phaseId}`)
+    syncExpanded()
     syncUrl()
     render()
   }
@@ -1929,10 +1954,8 @@ ${data!.project.description ?? 'Ship the current phase, then the next.'}`
       phaseId = taskDetail.phase.id
       await loadProject()
     }
-  } else if (me && projects[0]) {
-    projectId = projects[0].id
-    await loadProject()
   }
+  syncExpanded()
   render()
   window.setInterval(() => void refreshAgents(), 30_000)
 
@@ -1955,6 +1978,7 @@ ${data!.project.description ?? 'Ship the current phase, then the next.'}`
         await loadProject()
       }
     }
+    syncExpanded()
     render()
   })
 }
