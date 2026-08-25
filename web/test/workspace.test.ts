@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { renderAgentPromptModal, renderFeatureMatrix } from '../src/workspace.js'
+import {
+  renderAgentPromptModal,
+  renderFeatureMatrix,
+  renderProjectSettingsPanel,
+} from '../src/workspace.js'
 
 test('renders the onboarding modal with escaped prompt and agent link', () => {
   const html = renderAgentPromptModal(
@@ -47,4 +51,25 @@ test('renders feature statuses and only links real release columns', () => {
   assert.match(html, /in progress/)
   assert.match(html, /No release/)
   assert.doesNotMatch(html, /data-release=""/)
+})
+
+test('renders escaped project settings with GitHub and one-time key controls', () => {
+  const html = renderProjectSettingsPanel({
+    id: 'project-1',
+    name: '<Project>',
+    description: 'A useful project',
+    docId: 'doc/1',
+    docTitle: 'HQ',
+    github: { enabled: false, repo: null, syncEnabled: false },
+  })
+
+  assert.match(html, /Project settings/)
+  assert.match(html, /value="&lt;Project&gt;"/)
+  assert.match(html, /A useful project/)
+  assert.match(html, /href="\/d\/doc%2F1"/)
+  assert.match(html, /GitHub Issues sync/)
+  assert.match(html, /id="enable-github"/)
+  assert.match(html, /id="mint-project-key"/)
+  assert.match(html, /secret is shown once/)
+  assert.doesNotMatch(html, /<Project>/)
 })

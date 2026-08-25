@@ -1,14 +1,14 @@
 import request from 'supertest'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { makeCtx, anonDoc, account, type TestCtx } from './helpers.js'
+import { closeCtx, makeCtx, anonDoc, account, type TestCtx } from './helpers.js'
 
 describe('pages, handoff, and 0.3 extras', () => {
   let ctx: TestCtx
-  beforeEach(() => {
-    ctx = makeCtx()
+  beforeEach(async () => {
+    ctx = await makeCtx()
   })
-  afterEach(() => {
-    ctx.db.close()
+  afterEach(async () => {
+    await closeCtx(ctx)
   })
 
   it('serves agent handoffs: CLI fetchers get markdown, JSON manifest via Accept', async () => {
@@ -75,12 +75,19 @@ describe('pages, handoff, and 0.3 extras', () => {
     const created = await agent
       .post('/api/templates')
       .send({ slug: 'team-playbook', title: 'Team Playbook', content: '# Playbook\n' })
-    expect(created.status).toBe(201)
+    expect(
+      created.status,
+      `${created.status} ${created.text} ${JSON.stringify(created.headers)}`,
+    ).toBe(201)
     const anonList = await request(ctx.app).get('/api/templates')
     expect(anonList.body.templates.some((t: { slug: string }) => t.slug === 'team-playbook')).toBe(
       false,
     )
     const ownerList = await agent.get('/api/templates')
+    expect(
+      ownerList.status,
+      `${ownerList.status} ${ownerList.text} ${JSON.stringify(ownerList.headers)}`,
+    ).toBe(200)
     expect(ownerList.body.templates.some((t: { slug: string }) => t.slug === 'team-playbook')).toBe(
       true,
     )
@@ -137,10 +144,17 @@ describe('pages, handoff, and 0.3 extras', () => {
   it('runs the full skill lifecycle: folder, SKILL.md, release, submit, review, manifest, diff', async () => {
     const { agent, token } = await account(ctx.app, 'skill-owner')
     const folder = await agent.post('/api/folders').send({ name: 'Import Auditor' })
+    expect(folder.status, `${folder.status} ${folder.text} ${JSON.stringify(folder.headers)}`).toBe(
+      201,
+    )
     const folderId = folder.body.folder.id as string
     const skillDoc = await agent
       .post('/api/docs')
       .send({ title: 'SKILL.md', content: '# SKILL\n\nAudits imports.\n' })
+    expect(
+      skillDoc.status,
+      `${skillDoc.status} ${skillDoc.text} ${JSON.stringify(skillDoc.headers)}`,
+    ).toBe(201)
     await agent.post(`/api/docs/${skillDoc.body.doc.id}/move`).send({ folderId })
     const script = await agent
       .post('/api/docs')
