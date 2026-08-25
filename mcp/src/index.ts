@@ -409,6 +409,28 @@ function taskBody(args: Record<string, unknown>) {
 }
 
 server.registerTool(
+  'mint_project_key',
+  {
+    description:
+      'Mint a project-scoped API key. The returned secret is shown once and must be stored securely by the caller.',
+    inputSchema: {
+      project: z.string().min(1),
+      label: z.string().max(80).optional(),
+    },
+  },
+  async ({ project, label }) => {
+    const resolved = resolveEntity(project, [/^\/p\/([^/]+)/, /^\/api\/projects\/([^/]+)/])
+    if (resolved.error) return resultFrom(resolved.error)
+    return resultFrom(
+      await jsonRequest('/api/projects/' + encodeURIComponent(resolved.id!) + '/key', {
+        method: 'POST',
+        body: label ? { label } : {},
+      }),
+    )
+  },
+)
+
+server.registerTool(
   'list_tasks',
   {
     description:

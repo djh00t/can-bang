@@ -1,23 +1,29 @@
 import { createServer, type Server } from 'node:http'
 import request from 'supertest'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { makeCtx, anonDoc, HQ, account, type TestCtx } from './helpers.js'
+import { closeCtx, makeCtx, anonDoc, HQ, account, type TestCtx } from './helpers.js'
 
 describe('accounts and org', () => {
   let ctx: TestCtx
-  beforeEach(() => {
-    ctx = makeCtx()
+  beforeEach(async () => {
+    ctx = await makeCtx()
   })
-  afterEach(() => {
-    ctx.db.close()
+  afterEach(async () => {
+    await closeCtx(ctx)
   })
 
   it('signs up, logs in/out, sets agent name, and manages tokens', async () => {
     const { agent, token } = await account(ctx.app, 'dave')
     const me = await agent.get('/api/me')
+    expect(me.status, `${me.status} ${me.text} ${JSON.stringify(me.headers)}`).toBe(200)
     expect(me.body.user.username).toBe('dave')
-    await agent.post('/api/me/agent-name').send({ name: "Dave's agent" })
+    const renamed = await agent.post('/api/me/agent-name').send({ name: "Dave's agent" })
+    expect(
+      renamed.status,
+      `${renamed.status} ${renamed.text} ${JSON.stringify(renamed.headers)}`,
+    ).toBe(200)
     const me2 = await agent.get('/api/me')
+    expect(me2.status, `${me2.status} ${me2.text} ${JSON.stringify(me2.headers)}`).toBe(200)
     expect(me2.body.user.agent_name).toBe("Dave's agent")
     const tokens = await agent.get('/api/tokens')
     expect(tokens.body.tokens.length).toBe(1)
@@ -99,10 +105,14 @@ describe('accounts and org', () => {
     expect(exact.body.results[0].title).toBe('Launch Plan')
     const folder = await agent.post('/api/folders').send({ name: 'Q3' })
     const doc = await agent.post('/api/docs').send({ title: 'Q3 launch', content: 'launch in q3' })
-    await agent.post(`/api/docs/${doc.body.doc.id}/move`).send({ folderId: folder.body.folder.id })
+    const moved = await agent
+      .post(`/api/docs/${doc.body.doc.id}/move`)
+      .send({ folderId: folder.body.folder.id })
+    expect(moved.status, JSON.stringify(moved.body)).toBe(200)
     const filtered = await request(ctx.app)
       .get(`/api/search?q=${encodeURIComponent('launch folder:"Q3"')}`)
       .set('authorization', `Bearer ${token}`)
+    expect(filtered.status, JSON.stringify(filtered.body)).toBe(200)
     expect(filtered.body.results.length).toBe(1)
     expect(filtered.body.results[0].title).toBe('Q3 launch')
   })
@@ -167,7 +177,9 @@ describe('accounts and org', () => {
     expect(sig.startsWith('sha256=')).toBe(true)
     const { hmacSha256 } = await import('../src/crypto.js')
     expect(sig).toBe(`sha256=${hmacSha256(secret, received!.body)}`)
-    server.close()
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()))
+    })
   })
 
   it('uploads assets with content-addressing and refuses opaque binaries', async () => {
@@ -258,6 +270,7 @@ describe('accounts and org', () => {
     const task = await agent
       .post(`/api/phases/${phaseId}/tasks`)
       .send({ title: 'Fix the thing', acceptance: 'it works', done_means: 'verified by a human' })
+    expect(task.status, JSON.stringify(task.body)).toBe(201)
     const taskId = task.body.task.id as string
     const overview = await agent.get(`/api/projects/${pid}`)
     await agent

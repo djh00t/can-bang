@@ -457,7 +457,12 @@ export function reindexBoard(
   if (content !== doc.content) {
     bumpContent(db, project.doc_id, content, 'board-sync', false, 'live', 'board sync')
   }
-  db.prepare('UPDATE projects SET board_indexed_at=? WHERE id=?').run(now(), projectId)
+  const indexedDoc = db.prepare('SELECT updated_at FROM docs WHERE id=?').get(project.doc_id) as
+    { updated_at: number } | undefined
+  db.prepare('UPDATE projects SET board_indexed_at=? WHERE id=?').run(
+    indexedDoc?.updated_at ?? doc.updated_at,
+    projectId,
+  )
   return { indexed: seen.size, created, updated, removed }
 }
 

@@ -117,6 +117,12 @@ export function orgRoutes(services: AppServices): express.Router {
       const access = resolveAccess(db, req, '')
       if (!access.identity.accountId)
         throw new ApiError(401, 'not signed in', 'Login or pass Authorization: Bearer mgn_…')
+      if (access.identity.projectId)
+        throw new ApiError(
+          401,
+          'account token required',
+          'Project keys are scoped to workspace resources and cannot access account routes.',
+        )
       const account = db
         .prepare('SELECT username, agent_name FROM accounts WHERE id=?')
         .get(access.identity.accountId) as
@@ -130,6 +136,12 @@ export function orgRoutes(services: AppServices): express.Router {
     asyncHandler((req: Request, res: Response) => {
       const access = resolveAccess(db, req, '')
       if (!access.identity.accountId) throw new ApiError(401, 'not signed in')
+      if (access.identity.projectId)
+        throw new ApiError(
+          401,
+          'account token required',
+          'Project keys are scoped to workspace resources and cannot access account routes.',
+        )
       const name = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 60) : ''
       if (!name) throw badRequest('name required')
       db.prepare('UPDATE accounts SET agent_name=? WHERE id=?').run(name, access.identity.accountId)

@@ -1,6 +1,7 @@
 import { mountWorkspace } from './workspace.js'
 import { mountEditor } from './editor.js'
 import { mountMarketplace, type MarketplaceKind } from './marketplace.js'
+import { mountSettings } from './settings.js'
 
 function route(): void {
   const app = document.getElementById('app')!
@@ -11,6 +12,8 @@ function route(): void {
     const key = new URLSearchParams(location.search).get('key') ?? ''
     const readonly = path.startsWith('/pub')
     void mountEditor(app, docId, key, readonly)
+  } else if (path === '/settings') {
+    void mountSettings(app)
   } else if (path === '/marketplace/widgets' || path === '/marketplace/templates') {
     const kind: MarketplaceKind = path.endsWith('/widgets') ? 'widgets' : 'templates'
     void mountMarketplace(app, kind)

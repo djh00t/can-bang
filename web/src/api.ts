@@ -352,6 +352,20 @@ export class Api {
     await this.request('/api/me/agent-name', { method: 'POST', body: JSON.stringify({ name }) })
   }
 
+  async templates(): Promise<{
+    templates: {
+      slug: string
+      title: string
+      description: string | null
+      category: string | null
+      builtin?: boolean
+      scope?: string
+    }[]
+  }> {
+    const res = await this.request('/api/templates')
+    return res.json()
+  }
+
   async uploadAsset(
     id: string,
     key: string,
@@ -507,11 +521,22 @@ export class Api {
 
   async patchProject(
     id: string,
-    patch: { name?: string; doc_id?: string | null },
+    patch: { name?: string; description?: string | null; doc_id?: string | null },
   ): Promise<unknown> {
     const res = await this.request(`/api/projects/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
+    })
+    return res.json()
+  }
+
+  async createProjectKey(
+    projectId: string,
+    label?: string,
+  ): Promise<{ ok: boolean; id: string; key: string }> {
+    const res = await this.request(`/api/projects/${projectId}/key`, {
+      method: 'POST',
+      body: JSON.stringify({ label }),
     })
     return res.json()
   }

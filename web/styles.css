@@ -312,6 +312,125 @@ a:hover {
   margin-top: 4px;
 }
 
+.settings-shell {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 32px 24px 56px;
+}
+
+.settings-head {
+  display: grid;
+  gap: 18px;
+  margin-bottom: 28px;
+}
+
+.settings-head h1,
+.settings-card h2,
+.settings-template h3 {
+  color: var(--text);
+  margin: 0;
+}
+
+.settings-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-card {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-card-head,
+.settings-template-meta,
+.settings-form-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-form {
+  display: grid;
+  gap: 7px;
+}
+
+.settings-form label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.settings-form input {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-token-list {
+  display: grid;
+  gap: 7px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.settings-token {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 7px;
+  font-size: 12px;
+}
+
+.settings-new-token {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 10px;
+  background: var(--accent-soft);
+  overflow-wrap: anywhere;
+}
+
+.settings-template-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+
+.settings-template {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+.settings-template p {
+  margin: 0;
+}
+
+.settings-templates-card {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 720px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-templates-card {
+    grid-column: auto;
+  }
+
+  .settings-form-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 .panel h3 {
   margin: 0 0 10px;
   font-size: 12px;
@@ -1047,6 +1166,77 @@ textarea:focus {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 3px;
+}
+
+.ws-project-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  gap: 14px;
+}
+
+.ws-settings-form,
+.ws-project-settings-side {
+  display: grid;
+  gap: 14px;
+}
+
+.ws-settings-form {
+  align-content: start;
+}
+
+.ws-settings-form h3,
+.ws-project-settings-side h3 {
+  margin: 4px 0;
+}
+
+.ws-settings-form label,
+.ws-project-settings-side label {
+  display: grid;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ws-settings-form input,
+.ws-settings-form textarea,
+.ws-project-settings-side input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ws-settings-form textarea {
+  resize: vertical;
+}
+
+.ws-settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ws-project-key-output {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.ws-project-key-output code {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .ws-project-settings {
+    grid-template-columns: 1fr;
+  }
+
+  .ws-settings-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 .ws-tab {
