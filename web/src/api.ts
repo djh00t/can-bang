@@ -364,8 +364,47 @@ export class Api {
     return res.json()
   }
 
+  async createProjectKey(
+    projectId: string,
+    label?: string,
+  ): Promise<{ key: string; label: string | null }> {
+    const res = await this.request(`/api/projects/${projectId}/api-keys`, {
+      method: 'POST',
+      body: JSON.stringify(label ? { label } : {}),
+    })
+    return res.json()
+  }
+
+  async projectKeys(projectId: string): Promise<{
+    keys: { id: string; label: string | null; created_at: number; revoked_at: number | null }[]
+  }> {
+    const res = await this.request(`/api/projects/${projectId}/api-keys`)
+    return res.json()
+  }
+
+  async revokeProjectKey(projectId: string, keyId: string): Promise<{ ok: boolean }> {
+    const res = await this.request(`/api/projects/${projectId}/api-keys/${keyId}`, {
+      method: 'DELETE',
+    })
+    return res.json()
+  }
+
   async agentName(name: string): Promise<void> {
     await this.request('/api/me/agent-name', { method: 'POST', body: JSON.stringify({ name }) })
+  }
+
+  async templates(): Promise<{
+    templates: {
+      slug: string
+      title: string
+      description: string | null
+      category: string | null
+      builtin?: boolean
+      scope?: string
+    }[]
+  }> {
+    const res = await this.request('/api/templates')
+    return res.json()
   }
 
   async uploadAsset(
@@ -452,6 +491,7 @@ export class Api {
       docId: string | null
       docTitle: string | null
       github: { enabled: boolean; repo: string | null; syncEnabled: boolean }
+      apiKeyCount: number
     }
     phases: {
       id: string
@@ -517,7 +557,7 @@ export class Api {
 
   async patchProject(
     id: string,
-    patch: { name?: string; doc_id?: string | null },
+    patch: { name?: string; description?: string | null; doc_id?: string | null },
   ): Promise<unknown> {
     const res = await this.request(`/api/projects/${id}`, {
       method: 'PATCH',

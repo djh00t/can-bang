@@ -51,7 +51,14 @@ Stale rules are removed only by a review.
 
 ## Task notes (candidates for promotion)
 
-- Keep empty unless a review leaves a rule that is not yet proven general.
+- 2026-08-25: Board reindex staleness compared `doc.updated_at` with
+  `project.board_indexed_at`; same-millisecond content writes could be skipped.
+  Content timestamps must advance monotonically. The regression test forces an
+  equal timestamp boundary. The rare first-request flake was separate: Supertest
+  bound `app.listen(0)` on `0.0.0.0`, allowing a local Node inspector or another
+  service to receive the request. Test contexts now pre-bind to `127.0.0.1` and
+  await server teardown. The post-fix server coverage soak passed 10/10, and
+  the full `make check` acceptance passed 20/20 consecutively.
 
 ## Promotion log
 

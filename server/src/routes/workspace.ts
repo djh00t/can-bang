@@ -1,8 +1,9 @@
 import express, { type Request, type Response } from 'express'
-import { ApiError, badRequest, notFound, randomId } from '@can-bang/core'
+import { ApiError, badRequest, notFound, randomId, secret } from '@can-bang/core'
 import type { AppServices } from '../service.js'
 import type { Db } from '../db.js'
-import { resolveAccess } from '../auth.js'
+import { projectKeyFromRequest, resolveAccess } from '../auth.js'
+import { hashSecret } from '../crypto.js'
 import { asyncHandler } from '../util.js'
 import { now } from '@can-bang/core'
 import { realGh, syncProjectGithub } from '../github.js'
@@ -160,11 +161,103 @@ export function workspaceRoutes(services: AppServices): express.Router {
   const r = express.Router()
   const { db } = services
 
+  const projectIdForRequest = (req: Request): string | null => {
+    if (req.path.startsWith('/api/projects/') && req.params.id) return req.params.id
+    if (req.path.startsWith('/api/phases/') && req.params.id) {
+      return (
+        (
+          db.prepare('SELECT project_id FROM phases WHERE id=?').get(req.params.id) as
+            { project_id: string } | undefined
+        )?.project_id ?? null
+      )
+    }
+    if (req.path.startsWith('/api/releases/') && req.params.id) {
+      return (
+        (
+          db
+            .prepare(
+              'SELECT ph.project_id FROM releases rl JOIN phases ph ON ph.id=rl.phase_id WHERE rl.id=?',
+            )
+            .get(req.params.id) as { project_id: string } | undefined
+        )?.project_id ?? null
+      )
+    }
+    if (req.path.startsWith('/api/tasks/') && req.params.id) {
+      return (
+        (
+          db
+            .prepare(
+              'SELECT ph.project_id FROM tasks t JOIN phases ph ON ph.id=t.phase_id WHERE t.id=?',
+            )
+            .get(req.params.id) as { project_id: string } | undefined
+        )?.project_id ?? null
+      )
+    }
+    return null
+  }
+
   const accountIdOf = (req: Request): string => {
     const access = resolveAccess(db, req, '')
     if (!access.identity.accountId)
       throw new ApiError(401, 'account required', 'Sign in or pass an account token.')
+    if (access.identity.projectId) {
+      const projectId = projectIdForRequest(req)
+      if (!projectId)
+        throw new ApiError(
+          403,
+          'project key is scoped to one project',
+          'Use this key with a project resource, or authenticate with an account token.',
+        )
+      if (projectId !== access.identity.projectId) throw notFound('project not found')
+    }
     return access.identity.accountId
+  }
+
+  const projectAccountIdOf = (req: Request, projectId: string): string => {
+    const projectKey = projectKeyFromRequest(db, req)
+    if (projectKey) {
+      if (projectKey.projectId !== projectId) throw notFound('project not found')
+      return projectKey.accountId
+    }
+    return accountIdOf(req)
+  }
+
+  const projectAccountIdForPhase = (req: Request, phaseId: string): string => {
+    const row = db.prepare('SELECT project_id FROM phases WHERE id=?').get(phaseId) as
+      { project_id: string } | undefined
+    if (!row) throw notFound('phase not found')
+    return projectAccountIdOf(req, row.project_id)
+  }
+
+  const projectAccountIdForRelease = (req: Request, releaseId: string): string => {
+    const row = db
+      .prepare(
+        'SELECT ph.project_id FROM releases r JOIN phases ph ON ph.id=r.phase_id WHERE r.id=?',
+      )
+      .get(releaseId) as { project_id: string } | undefined
+    if (!row) throw notFound('release not found')
+    return projectAccountIdOf(req, row.project_id)
+  }
+
+  const projectAccountIdForTask = (req: Request, taskId: string): string => {
+    const row = db
+      .prepare('SELECT ph.project_id FROM tasks t JOIN phases ph ON ph.id=t.phase_id WHERE t.id=?')
+      .get(taskId) as { project_id: string } | undefined
+    if (!row) throw notFound('task not found')
+    return projectAccountIdOf(req, row.project_id)
+  }
+
+  const rejectProjectKeyDocLink = (req: Request): void => {
+    if (
+      Object.prototype.hasOwnProperty.call(req.body ?? {}, 'doc_id') &&
+      projectKeyFromRequest(db, req)
+    ) {
+      throw new ApiError(
+        403,
+        'project keys cannot link documents',
+        'Use an account token to link documents to project entities.',
+      )
+    }
   }
 
   const projectOf = (db: Db, accountId: string, id: string): ProjectRow => {
@@ -276,10 +369,65 @@ state: building
     }),
   )
 
+  r.post(
+    '/api/projects/:id/api-keys',
+    asyncHandler((req: Request, res: Response) => {
+      const accountId = accountIdOf(req)
+      const project = projectOf(db, accountId, req.params.id!)
+      const label = typeof req.body?.label === 'string' ? req.body.label.trim().slice(0, 80) : null
+      const key = `pk_${secret(28)}`
+      db.prepare(
+        'INSERT INTO project_keys (id, project_id, key_hash, label, created_at) VALUES (?,?,?,?,?)',
+      ).run(randomId(14), project.id, hashSecret(key), label, now())
+      res.status(201).json({ key, label })
+    }),
+  )
+
+  r.get(
+    '/api/projects/:id/api-keys',
+    asyncHandler((req: Request, res: Response) => {
+      const project = projectOf(db, accountIdOf(req), req.params.id!)
+      const keys = db
+        .prepare(
+          'SELECT id, label, created_at, revoked_at FROM project_keys WHERE project_id=? ORDER BY created_at DESC',
+        )
+        .all(project.id) as {
+        id: string
+        label: string | null
+        created_at: number
+        revoked_at: number | null
+      }[]
+      res.json({ keys })
+    }),
+  )
+
+  r.delete(
+    '/api/projects/:id/api-keys/:keyId',
+    asyncHandler((req: Request, res: Response) => {
+      const project = projectOf(db, accountIdOf(req), req.params.id!)
+      const result = db
+        .prepare(
+          'UPDATE project_keys SET revoked_at=COALESCE(revoked_at, ?) WHERE id=? AND project_id=?',
+        )
+        .run(now(), req.params.keyId!, project.id)
+      if (!result.changes) throw notFound('project key not found')
+      res.json({ ok: true })
+    }),
+  )
+
+  r.get(
+    '/api/project-key',
+    asyncHandler((req: Request, res: Response) => {
+      const projectKey = projectKeyFromRequest(db, req)
+      if (!projectKey) throw new ApiError(401, 'project key required')
+      res.json({ projectId: projectKey.projectId })
+    }),
+  )
+
   r.get(
     '/api/projects/:id',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdOf(req, req.params.id!)
       const project = projectOf(db, accountId, req.params.id!)
       reindexIfStale(db, project.id)
       const phases = db
@@ -307,6 +455,15 @@ state: building
             repo: project.github_repo,
             syncEnabled: project.github_sync === 1,
           },
+          apiKeyCount: (
+            db
+              .prepare(
+                'SELECT COUNT(*) AS c FROM project_keys WHERE project_id=? AND revoked_at IS NULL',
+              )
+              .get(project.id) as {
+              c: number
+            }
+          ).c,
         },
         phases: phases.map((ph) => ({
           id: ph.id,
@@ -364,7 +521,7 @@ state: building
   r.post(
     '/api/projects/:id/phases',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdOf(req, req.params.id!)
       const project = projectOf(db, accountId, req.params.id!)
       const name = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 120) : ''
       if (!name) throw badRequest('name required')
@@ -384,8 +541,9 @@ state: building
   r.patch(
     '/api/phases/:id',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdForPhase(req, req.params.id!)
       const phase = phaseOf(db, accountId, req.params.id!)
+      rejectProjectKeyDocLink(req)
       const name =
         typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 120) : undefined
       const status = ['planned', 'active', 'done'].includes(req.body?.status)
@@ -407,27 +565,65 @@ state: building
   r.patch(
     '/api/projects/:id',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdOf(req, req.params.id!)
       const project = projectOf(db, accountId, req.params.id!)
+      rejectProjectKeyDocLink(req)
       const name =
         typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 120) : undefined
+      const description =
+        req.body?.description === null
+          ? null
+          : typeof req.body?.description === 'string'
+            ? req.body.description.trim().slice(0, 500) || null
+            : undefined
       const docId =
         req.body?.doc_id === null
           ? null
           : typeof req.body?.doc_id === 'string'
             ? req.body.doc_id
             : undefined
-      db.prepare(
-        'UPDATE projects SET name=COALESCE(?, name), doc_id=COALESCE(?, doc_id), updated_at=? WHERE id=?',
-      ).run(name ?? null, docId ?? null, now(), project.id)
+      if (name !== undefined && !name) throw badRequest('name required')
+      const updates: string[] = []
+      const params: (string | number | null)[] = []
+      if (name !== undefined) {
+        updates.push('name=?')
+        params.push(name)
+      }
+      if (description !== undefined) {
+        updates.push('description=?')
+        params.push(description)
+      }
+      if (docId !== undefined) {
+        updates.push('doc_id=?')
+        params.push(docId)
+      }
+      updates.push('updated_at=?')
+      params.push(now(), project.id)
+      db.prepare(`UPDATE projects SET ${updates.join(', ')} WHERE id=?`).run(...params)
       res.json({ ok: true })
+    }),
+  )
+
+  r.post(
+    '/api/projects/:id/key',
+    asyncHandler((req: Request, res: Response) => {
+      const accountId = accountIdOf(req)
+      const project = projectOf(db, accountId, req.params.id!)
+      const key = `pbk_${secret(28)}`
+      const id = randomId(14)
+      const label =
+        typeof req.body?.label === 'string' ? req.body.label.trim().slice(0, 80) || null : null
+      db.prepare(
+        'INSERT INTO project_keys (id, project_id, key_hash, label, created_at) VALUES (?, ?, ?, ?, ?)',
+      ).run(id, project.id, hashSecret(key), label, now())
+      res.status(201).json({ ok: true, id, key })
     }),
   )
 
   r.get(
     '/api/phases/:id/burndown',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdForPhase(req, req.params.id!)
       const phase = phaseOf(db, accountId, req.params.id!)
       reindexIfStale(db, phase.project_id)
       const days = Math.min(Math.max(Number(req.query.days ?? 30), 2), 90)
@@ -438,7 +634,7 @@ state: building
   r.patch(
     '/api/projects/:id/github',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdOf(req, req.params.id!)
       const project = projectOf(db, accountId, req.params.id!)
       const enabled = req.body?.enabled === false ? 0 : 1
       const repo =
@@ -472,7 +668,7 @@ state: building
   r.post(
     '/api/projects/:id/sync-github',
     asyncHandler(async (req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdOf(req, req.params.id!)
       const project = projectOf(db, accountId, req.params.id!)
       if (!project.github_repo || !project.github_token) {
         throw badRequest('github not configured', 'Enable GitHub sync on the project first.')
@@ -499,7 +695,7 @@ state: building
   r.post(
     '/api/phases/:id/releases',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdForPhase(req, req.params.id!)
       const phase = phaseOf(db, accountId, req.params.id!)
       const name = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 120) : ''
       if (!name) throw badRequest('name required')
@@ -523,8 +719,9 @@ state: building
   r.patch(
     '/api/releases/:id',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdForRelease(req, req.params.id!)
       const release = releaseOf(db, accountId, req.params.id!)
+      rejectProjectKeyDocLink(req)
       const name =
         typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 120) : undefined
       const demoStatus = ['pending', 'pass', 'partial', 'fail'].includes(req.body?.demo_status)
@@ -547,7 +744,7 @@ state: building
   r.get(
     '/api/releases/:id',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdForRelease(req, req.params.id!)
       const release = releaseOf(db, accountId, req.params.id!)
       const phase = db.prepare('SELECT * FROM phases WHERE id=?').get(release.phase_id) as PhaseRow
       reindexIfStale(db, phase.project_id)
@@ -590,8 +787,9 @@ state: building
   r.post(
     '/api/phases/:id/tasks',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdForPhase(req, req.params.id!)
       const phase = phaseOf(db, accountId, req.params.id!)
+      rejectProjectKeyDocLink(req)
       const title = typeof req.body?.title === 'string' ? req.body.title.trim().slice(0, 200) : ''
       if (!title) throw badRequest('title required')
       const status = ['todo', 'doing', 'testing', 'done'].includes(req.body?.status)
@@ -668,7 +866,7 @@ state: building
   r.patch(
     '/api/tasks/:id',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdForTask(req, req.params.id!)
       const task = db
         .prepare(
           `SELECT t.* FROM tasks t JOIN phases ph ON ph.id = t.phase_id JOIN projects pr ON pr.id = ph.project_id
@@ -676,6 +874,7 @@ state: building
         )
         .get(req.params.id!, accountId) as TaskRow | undefined
       if (!task) throw notFound('task not found')
+      rejectProjectKeyDocLink(req)
       const status = ['todo', 'doing', 'testing', 'done'].includes(req.body?.status)
         ? req.body.status
         : undefined
@@ -791,7 +990,7 @@ state: building
   r.get(
     '/api/tasks/:id',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdForTask(req, req.params.id!)
       const task = db
         .prepare(
           `SELECT t.* FROM tasks t JOIN phases ph ON ph.id = t.phase_id JOIN projects pr ON pr.id = ph.project_id
@@ -830,7 +1029,7 @@ state: building
   r.get(
     '/api/projects/:id/matrix',
     asyncHandler((req: Request, res: Response) => {
-      const accountId = accountIdOf(req)
+      const accountId = projectAccountIdOf(req, req.params.id!)
       const project = projectOf(db, accountId, req.params.id!)
       reindexIfStale(db, project.id)
       const phases = db

@@ -95,6 +95,20 @@ describe('markdown model', () => {
     expect(statusState(updated)).toBe('done')
   })
 
+  it('keeps chat lines inside one closed fence', () => {
+    const md = '# Test\n\n```chat #general\n- 2026-07-04T14:02Z @jake: standup?\n```\n\nAfter'
+    const fence = findFence(md, 'chat', 'general')!
+    const updated = appendFenceLine(md, fence, '- 2026-07-04T15:00Z @claude: on it')
+    expect(updated.match(/```chat #general/g)).toHaveLength(1)
+    const opening = updated.indexOf('```chat #general')
+    const closing = updated.indexOf('```', opening + '```chat #general'.length)
+    const message = updated.indexOf('@claude: on it')
+    expect(message).toBeGreaterThan(opening)
+    expect(message).toBeLessThan(closing)
+    const updatedFence = findFence(updated, 'chat', 'general')!
+    expect(parseChat(updatedFence.body)).toHaveLength(2)
+  })
+
   it('content versions differ for different content', () => {
     expect(contentVersion('a')).not.toBe(contentVersion('b'))
     expect(contentVersion('a')).toBe(contentVersion('a'))
