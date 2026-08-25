@@ -127,6 +127,17 @@ export function workspaceAncestorKeys(
   return keys
 }
 
+export type WorkspaceAgent = {
+  id: string
+  name: string
+  harness: string | null
+  machine: string | null
+  role: string
+  currentDoc: string | null
+  currentTask: string | null
+  freshness: 'live' | 'idle' | 'stale'
+}
+
 const STATUS_LABEL: Record<string, string> = {
   shipped: 'shipped',
   'in-progress': 'in progress',
@@ -336,6 +347,56 @@ function openInfoModal(title: string, html: string): void {
   wireCopy('#copy-agent-prompt', '#agent-prompt')
 }
 
+export function agentPresenceStatus(
+  agent: WorkspaceAgent,
+  tasks: { id: string; title?: string; description?: string | null; blockers: string | null }[],
+): 'online' | 'offline' | 'working' | 'blocked' {
+  if (agent.freshness === 'stale') return 'offline'
+  if (agent.currentTask) {
+    const task = findAgentTask(agent.currentTask, tasks)
+    return task?.blockers ? 'blocked' : 'working'
+  }
+  return agent.freshness === 'live' ? 'online' : 'offline'
+}
+
+function findAgentTask(
+  currentTask: string,
+  tasks: { id: string; title?: string; description?: string | null; blockers: string | null }[],
+) {
+  const normalized = currentTask.trim().toLowerCase()
+  return tasks.find(
+    (candidate) =>
+      candidate.id === currentTask ||
+      candidate.title?.trim().toLowerCase() === normalized ||
+      candidate.description?.trim().toLowerCase() === normalized,
+  )
+}
+
+export function renderAgentPresence(
+  agents: WorkspaceAgent[],
+  tasks: { id: string; title?: string; description?: string | null; blockers: string | null }[],
+): string {
+  if (!agents.length) return '<span class="muted small">No registered agents yet.</span>'
+  return `<div class="ws-agent-list">${agents
+    .map((agent) => {
+      const status = agentPresenceStatus(agent, tasks)
+      const statusClass =
+        status === 'online'
+          ? 'sp-pass'
+          : status === 'working'
+            ? 'sp-doing'
+            : status === 'blocked'
+              ? 'sp-blocked'
+              : 'sp-none'
+      const task = agent.currentTask ? findAgentTask(agent.currentTask, tasks) : undefined
+      return `<div class="ws-agent-row">
+        <div class="ws-agent-ident"><b>@${escapeHtml(agent.name)}</b>${agent.role === 'chief' ? '<span class="muted small">chief</span>' : ''}${task || agent.currentTask ? `<span class="muted small">${escapeHtml(task?.title ?? agent.currentTask ?? '')}</span>` : ''}</div>
+        <span class="status-pill ${statusClass}">${status}</span>
+      </div>`
+    })
+    .join('')}</div>`
+}
+
 export function renderProjectSettingsPanel(project: {
   id: string
   name: string
@@ -422,6 +483,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     docId: string
     lines: { ts: string; name: string; text: string; kind?: string }[]
   } | null = null
+  let agents: WorkspaceAgent[] = []
   let skills: { slug: string; name: string; category: string; installs: number }[] = []
   let agentPrompt: { link: string; text: string } | null = null
 
@@ -492,6 +554,18 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     }
   }
 
+  const loadAgents = async () => {
+    if (!me) {
+      agents = []
+      return
+    }
+    try {
+      agents = (await api.agents()).agents
+    } catch {
+      agents = []
+    }
+  }
+
   const loadPhaseBurndown = async (id: string | null) => {
     if (!id || !shouldLoadPhaseBurndown(id, burndownCache)) return
     burndownCache.set(id, await api.phaseBurndown(id))
@@ -507,7 +581,15 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     }
     if (view === 'matrix') matrixData = await api.matrix(projectId)
     await loadPhaseBurndown(phaseId)
+    await loadAgents()
     await loadChat()
+  }
+
+  const refreshAgents = async () => {
+    const refreshingProject = projectId
+    if (!refreshingProject || !data) return
+    await loadAgents()
+    if (projectId === refreshingProject) render()
   }
 
   const toggleProject = async (id: string) => {
@@ -937,7 +1019,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
             .join('')}
         </div>
         <div class="ws-right">
-          ${renderChat()}
+          ${renderAgentsPanel()}
           <button class="btn sm block" id="add-task">+ Task in ${phase ? escapeHtml(phase.name) : 'phase'}</button>
         </div>
         </div>
@@ -994,7 +1076,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
             ${renderAgents()}
             ${data!.project.docId ? `<div class="panel"><h3>Project doc</h3><a class="btn sm" href="/d/${encodeURIComponent(data!.project.docId)}">Open · ${escapeHtml(data!.project.docTitle ?? 'project doc')}</a></div>` : ''}
           </div>
-          <div class="ws-overview-right">${renderChat()}</div>
+          <div class="ws-overview-right">${renderAgentsPanel()}</div>
         </div>
       </div>`
   }
@@ -1054,11 +1136,11 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
 
   const renderChat = () => {
     if (!chat) {
-      return `<div class="panel"><h3>Team chat</h3><span class="muted small">Link a project doc containing a \`\`\`chat fence to enable chat.</span></div>`
+      return `<div class="panel"><h3>Chat</h3><span class="muted small">Link a project doc containing a \`\`\`chat fence to enable chat.</span></div>`
     }
     return `
       <div class="panel ws-chat">
-        <h3>Team chat</h3>
+        <h3>Chat</h3>
         <div class="chat-list">
           ${
             chat.lines
@@ -1075,6 +1157,13 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
         </div>
       </div>`
   }
+
+  const renderAgentsPanel = () => `
+    <div class="panel ws-agents-panel">
+      <h3>AGENTS</h3>
+      ${renderAgentPresence(agents, data!.tasks)}
+    </div>
+    ${renderChat()}`
 
   const renderGithub = () => {
     const g = data!.project.github
@@ -1868,6 +1957,7 @@ ${data!.project.description ?? 'Ship the current phase, then the next.'}`
   }
   syncExpanded()
   render()
+  window.setInterval(() => void refreshAgents(), 30_000)
 
   window.addEventListener('popstate', async () => {
     const r = parseRoute()
