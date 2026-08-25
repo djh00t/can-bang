@@ -26,6 +26,7 @@ type ProjectData = {
     docId: string | null
     docTitle: string | null
     github: { enabled: boolean; repo: string | null; syncEnabled: boolean }
+    apiKeyCount: number
   }
   phases: Phase[]
   releases: {
@@ -52,7 +53,7 @@ type ProjectData = {
   counts: { total: number; done: number; doing: number; testing: number; todo: number }
 }
 
-type MatrixData = {
+export type MatrixData = {
   project: { id: string; name: string }
   phases: {
     id: string
@@ -61,6 +62,80 @@ type MatrixData = {
     release: { id: string; name: string; demo_status: string } | null
   }[]
   rows: { feature: string; cells: { phaseId: string; status: string }[] }[]
+}
+
+export type WorkspaceRoute = {
+  projectId: string | null
+  phaseId: string | null
+  view: 'overview' | 'pipeline' | 'matrix' | 'settings'
+  releaseId: string | null
+  taskId: string | null
+  detail: 'project' | 'release'
+}
+
+export function parseWorkspaceRoute(pathname: string): WorkspaceRoute {
+  const segs = pathname.split('/').filter(Boolean)
+  const route: WorkspaceRoute = {
+    projectId: null,
+    phaseId: null,
+    view: 'overview',
+    releaseId: null,
+    taskId: null,
+    detail: 'project',
+  }
+  if (segs[0] === 'p' && segs[1]) {
+    route.projectId = segs[1]
+    if (segs[2] === 'matrix') route.view = 'matrix'
+    else if (segs[2] === 'pipeline') route.view = 'pipeline'
+    else if (segs[2] === 'settings') route.view = 'settings'
+    else if (segs[2] === 'release' && segs[3]) {
+      route.releaseId = segs[3]
+      route.detail = 'release'
+    } else if (segs[2] === 'phase' && segs[3]) {
+      route.phaseId = segs[3]
+      route.view = 'pipeline'
+      if (segs[4] === 'task' && segs[5]) route.taskId = segs[5]
+    }
+  }
+  return route
+}
+
+export function workspacePathFor(route: WorkspaceRoute): string {
+  if (!route.projectId) return '/'
+  if (route.detail === 'release' && route.releaseId)
+    return `/p/${route.projectId}/release/${route.releaseId}`
+  if (route.view === 'matrix') return `/p/${route.projectId}/matrix`
+  if (route.view === 'settings') return `/p/${route.projectId}/settings`
+  if (route.view === 'overview') return `/p/${route.projectId}`
+  if (route.view === 'pipeline' && !route.phaseId) return `/p/${route.projectId}/pipeline`
+  if (route.phaseId)
+    return route.taskId
+      ? `/p/${route.projectId}/phase/${route.phaseId}/task/${route.taskId}`
+      : `/p/${route.projectId}/phase/${route.phaseId}`
+  return `/p/${route.projectId}`
+}
+
+export function workspaceAncestorKeys(
+  route: WorkspaceRoute,
+  releasePhaseId: string | null = null,
+): string[] {
+  const keys: string[] = []
+  if (route.projectId) keys.push(`project:${route.projectId}`)
+  const phaseId = route.detail === 'release' ? releasePhaseId : route.phaseId
+  if (phaseId) keys.push(`phase:${phaseId}`)
+  if (route.taskId && route.phaseId) keys.push(`tasks:${route.phaseId}`)
+  return keys
+}
+
+export type WorkspaceAgent = {
+  id: string
+  name: string
+  harness: string | null
+  machine: string | null
+  role: string
+  currentDoc: string | null
+  currentTask: string | null
+  freshness: 'live' | 'idle' | 'stale'
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -81,6 +156,69 @@ export function renderProjectSyncIndicator(github: {
     <span class="status-pill ${github.syncEnabled ? 'sp-pass' : 'sp-pending'}">${state}</span>
     <span class="muted small">GitHub · ${escapeHtml(github.repo ?? 'repository')}</span>
   </div>`
+}
+
+export function renderFeatureMatrix(matrixData: MatrixData | null): string {
+  if (!matrixData) return '<div class="panel"><span class="muted">loading matrix…</span></div>'
+  const releaseColumns = matrixData.phases
+    .map((phase) => {
+      const control = phase.release
+        ? '<button type="button" class="ws-matrix-release" data-release="' +
+          escapeHtml(phase.release.id) +
+          '" aria-label="Open release ' +
+          escapeHtml(phase.release.name) +
+          '"><span>' +
+          escapeHtml(phase.release.name) +
+          '</span><span class="status-pill sp-' +
+          escapeHtml(phase.release.demo_status) +
+          '">' +
+          escapeHtml(phase.release.demo_status) +
+          '</span></button>'
+        : '<span class="ws-matrix-release ws-matrix-no-release">No release</span>'
+      return (
+        '<th scope="col"><span class="ws-matrix-phase">' +
+        escapeHtml(phase.name) +
+        '</span>' +
+        control +
+        '</th>'
+      )
+    })
+    .join('')
+  const rows = matrixData.rows.length
+    ? matrixData.rows
+        .map(
+          (row) =>
+            '<tr><th scope="row"><b>' +
+            escapeHtml(row.feature) +
+            '</b></th>' +
+            row.cells
+              .map((cell) => {
+                const statusClass = cell.status === 'none' ? 'todo' : cell.status
+                return (
+                  '<td data-status="' +
+                  escapeHtml(cell.status) +
+                  '"><span class="status-pill sp-' +
+                  escapeHtml(statusClass) +
+                  '">' +
+                  escapeHtml(STATUS_LABEL[cell.status] ?? cell.status) +
+                  '</span></td>'
+                )
+              })
+              .join('') +
+            '</tr>',
+        )
+        .join('')
+    : '<tr><td colspan="' +
+      String(matrixData.phases.length + 1) +
+      '" class="muted">No feature data yet.</td></tr>'
+  return (
+    '<div class="ws-matrix-wrap panel" aria-label="Feature status matrix">' +
+    '<table class="ws-matrix"><thead><tr><th scope="col">Feature</th>' +
+    releaseColumns +
+    '</tr></thead><tbody>' +
+    rows +
+    '</tbody></table><div class="muted small">Open a release from its phase column to review its tasks and demo status.</div></div>'
+  )
 }
 
 function hqContent(name: string): string {
@@ -184,6 +322,72 @@ export function renderAgentPromptModal(link: string, text: string, kickoff: stri
     </div>`
 }
 
+export function renderProjectTreeLabel(
+  project: { id: string; name: string; done: number; total: number },
+  selected: boolean,
+  expanded: boolean,
+): string {
+  const id = escapeHtml(project.id)
+  return `<button class="ws-tree-label ${selected ? 'sel' : ''}" data-project-toggle="${id}" aria-expanded="${expanded}" aria-controls="project-children-${id}">📁 ${escapeHtml(project.name)}
+    <span class="ws-count">${project.done}/${project.total}</span></button>`
+}
+
+export type WorkspaceNavigationState = {
+  projectId: string | null
+  phaseId: string | null
+  view: 'overview' | 'pipeline' | 'matrix' | 'settings'
+  detail: 'project' | 'release'
+  releaseId: string | null
+  taskId: string | null
+}
+
+export function navigateToTreeTask(
+  state: WorkspaceNavigationState,
+  ownerProjectId: string,
+  phaseId: string,
+  taskId: string,
+): WorkspaceNavigationState {
+  return {
+    ...state,
+    projectId: ownerProjectId,
+    phaseId,
+    view: 'pipeline',
+    detail: 'project',
+    releaseId: null,
+    taskId,
+  }
+}
+
+export function navigateToTreeRelease(
+  state: WorkspaceNavigationState,
+  ownerProjectId: string,
+  phaseId: string,
+  releaseId: string | null,
+): WorkspaceNavigationState {
+  return {
+    ...state,
+    projectId: ownerProjectId,
+    phaseId,
+    detail: releaseId ? 'release' : 'project',
+    releaseId,
+    taskId: null,
+  }
+}
+
+export function shouldReloadProjectMatrix(
+  state: Pick<WorkspaceNavigationState, 'projectId' | 'view'>,
+  ownerProjectId: string,
+): boolean {
+  return state.view === 'matrix' && state.projectId !== ownerProjectId
+}
+
+export function shouldLoadPhaseBurndown(
+  phaseId: string | null,
+  cache: ReadonlyMap<string, unknown>,
+): boolean {
+  return phaseId !== null && !cache.has(phaseId)
+}
+
 function openInfoModal(title: string, html: string): void {
   const overlay = document.createElement('div')
   overlay.className = 'ws-modal-overlay'
@@ -219,6 +423,100 @@ function openInfoModal(title: string, html: string): void {
   wireCopy('#copy-agent-prompt', '#agent-prompt')
 }
 
+export function agentPresenceStatus(
+  agent: WorkspaceAgent,
+  tasks: { id: string; title?: string; description?: string | null; blockers: string | null }[],
+): 'online' | 'offline' | 'working' | 'blocked' {
+  if (agent.freshness === 'stale') return 'offline'
+  if (agent.currentTask) {
+    const task = findAgentTask(agent.currentTask, tasks)
+    return task?.blockers ? 'blocked' : 'working'
+  }
+  return agent.freshness === 'live' ? 'online' : 'offline'
+}
+
+function findAgentTask(
+  currentTask: string,
+  tasks: { id: string; title?: string; description?: string | null; blockers: string | null }[],
+) {
+  const normalized = currentTask.trim().toLowerCase()
+  return tasks.find(
+    (candidate) =>
+      candidate.id === currentTask ||
+      candidate.title?.trim().toLowerCase() === normalized ||
+      candidate.description?.trim().toLowerCase() === normalized,
+  )
+}
+
+export function renderAgentPresence(
+  agents: WorkspaceAgent[],
+  tasks: { id: string; title?: string; description?: string | null; blockers: string | null }[],
+): string {
+  if (!agents.length) return '<span class="muted small">No registered agents yet.</span>'
+  return `<div class="ws-agent-list">${agents
+    .map((agent) => {
+      const status = agentPresenceStatus(agent, tasks)
+      const statusClass =
+        status === 'online'
+          ? 'sp-pass'
+          : status === 'working'
+            ? 'sp-doing'
+            : status === 'blocked'
+              ? 'sp-blocked'
+              : 'sp-none'
+      const task = agent.currentTask ? findAgentTask(agent.currentTask, tasks) : undefined
+      return `<div class="ws-agent-row">
+        <div class="ws-agent-ident"><b>@${escapeHtml(agent.name)}</b>${agent.role === 'chief' ? '<span class="muted small">chief</span>' : ''}${task || agent.currentTask ? `<span class="muted small">${escapeHtml(task?.title ?? agent.currentTask ?? '')}</span>` : ''}</div>
+        <span class="status-pill ${statusClass}">${status}</span>
+      </div>`
+    })
+    .join('')}</div>`
+}
+
+export function renderProjectSettingsPanel(project: {
+  id: string
+  name: string
+  description: string | null
+  docId: string | null
+  docTitle: string | null
+  github: { enabled: boolean; repo: string | null; syncEnabled: boolean }
+}): string {
+  return [
+    '<div class="ws-project-settings">',
+    '<form class="panel ws-settings-form" id="project-settings-form">',
+    '<div><div class="eyebrow">Project settings</div><h3>Project details</h3><p class="muted">Keep the project identity and description current for every agent working here.</p></div>',
+    '<label>Name<input id="project-name" name="name" required maxlength="120" value="',
+    escapeHtml(project.name),
+    '"></label>',
+    '<label>Description<textarea id="project-description" name="description" maxlength="500" rows="5">',
+    escapeHtml(project.description ?? ''),
+    '</textarea></label>',
+    '<div class="ws-settings-actions"><button class="btn" type="submit">Save settings</button><span class="muted" id="project-settings-status" role="status"></span></div>',
+    '</form>',
+    '<div class="ws-project-settings-side">',
+    '<section class="panel ws-project-doc"><div class="eyebrow">Project document</div><h3>Working brief</h3>',
+    project.docId
+      ? '<a href="/d/' +
+        encodeURIComponent(project.docId) +
+        '">' +
+        escapeHtml(project.docTitle ?? 'Open project document') +
+        '</a>'
+      : '<span class="muted">No project document linked.</span>',
+    '<p class="muted">Use the Link docs control above to change the linked document.</p></section>',
+    '<section class="panel ws-project-github"><div class="eyebrow">Integrations</div><h3>GitHub Issues sync</h3>',
+    project.github.enabled
+      ? '<div class="muted">Repository <strong>' +
+        escapeHtml(project.github.repo ?? 'configured') +
+        '</strong></div><div class="muted">Sync is ' +
+        (project.github.syncEnabled ? 'enabled' : 'disabled') +
+        '.</div><button class="btn sm" id="sync-github" type="button">Sync now</button><span class="muted" id="sync-result" role="status"></span>'
+      : '<label>Repository<input id="gh-repo" placeholder="owner/name"></label><label>Personal access token<input id="gh-token" type="password" autocomplete="off"></label><button class="btn sm" id="enable-github" type="button">Enable GitHub</button>',
+    '</section>',
+    '<section class="panel ws-project-key"><div class="eyebrow">Automation</div><h3>Project API key</h3><p class="muted">Mint a project-scoped key for automation. The secret is shown once.</p><label>Label<input id="project-key-label" maxlength="80" placeholder="e.g. CI"></label><button class="btn sm" id="mint-project-key" type="button">Mint project key</button><span class="muted" id="project-key-status" role="status"></span><div id="project-key-output" class="ws-project-key-output" hidden></div></section>',
+    '</div></div>',
+  ].join('')
+}
+
 export async function mountWorkspace(root: HTMLElement): Promise<void> {
   const api = new Api()
   let me = (await api.me())?.user ?? null
@@ -233,12 +531,14 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   }[] = []
   let projectId: string | null = null
   let phaseId: string | null = null
-  let view: 'overview' | 'pipeline' | 'matrix' = 'overview'
+  let view: 'overview' | 'pipeline' | 'matrix' | 'settings' = 'overview'
   let detail: 'project' | 'release' = 'project'
   let releaseId: string | null = null
   let data: ProjectData | null = null
+  const projectTreeData = new Map<string, ProjectData>()
   let matrixData: MatrixData | null = null
   let releaseDetail: Awaited<ReturnType<Api['releaseDetail']>> | null = null
+  let projectKeys: Awaited<ReturnType<Api['projectKeys']>>['keys'] = []
   let inbox: {
     docId: string
     title: string
@@ -254,11 +554,13 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   let taskId: string | null = null
   let taskDetail: Awaited<ReturnType<Api['taskDetail']>> | null = null
   const burndownCache = new Map<string, Awaited<ReturnType<Api['phaseBurndown']>>>()
+  let projectBurndown: Awaited<ReturnType<Api['projectBurndown']>> | null = null
   const expanded = new Set<string>()
   let chat: {
     docId: string
     lines: { ts: string; name: string; text: string; kind?: string }[]
   } | null = null
+  let agents: WorkspaceAgent[] = []
   let skills: { slug: string; name: string; category: string; installs: number }[] = []
   let agentPrompt: { link: string; text: string } | null = null
 
@@ -270,51 +572,20 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   }
   const chevron = (key: string) =>
     `<button class="ws-chev" data-toggle="${key}" aria-expanded="${isOpen(key)}" aria-label="toggle">${isOpen(key) ? '▾' : '▸'}</button>`
-
-  const parseRoute = () => {
-    const segs = location.pathname.split('/').filter(Boolean)
-    const r: {
-      projectId: string | null
-      phaseId: string | null
-      view: 'overview' | 'pipeline' | 'matrix'
-      releaseId: string | null
-      taskId: string | null
-      detail: 'project' | 'release'
-    } = {
-      projectId: null,
-      phaseId: null,
-      view: 'overview',
-      releaseId: null,
-      taskId: null,
-      detail: 'project',
-    }
-    if (segs[0] === 'p' && segs[1]) {
-      r.projectId = segs[1]
-      if (segs[2] === 'matrix') r.view = 'matrix'
-      else if (segs[2] === 'pipeline') r.view = 'pipeline'
-      else if (segs[2] === 'release' && segs[3]) {
-        r.releaseId = segs[3]
-        r.detail = 'release'
-      } else if (segs[2] === 'phase' && segs[3]) {
-        r.phaseId = segs[3]
-        r.view = 'pipeline'
-        if (segs[4] === 'task' && segs[5]) r.taskId = segs[5]
-      }
-    }
-    return r
+  const projectChevron = (id: string) => {
+    const key = `project:${id}`
+    return `<button class="ws-chev" data-project-toggle="${escapeHtml(id)}" aria-expanded="${isOpen(key)}" aria-controls="project-children-${escapeHtml(id)}" aria-label="toggle">${isOpen(key) ? '▾' : '▸'}</button>`
   }
 
-  const urlFor = () => {
-    if (!projectId) return '/'
-    if (detail === 'release' && releaseId) return `/p/${projectId}/release/${releaseId}`
-    if (view === 'matrix') return `/p/${projectId}/matrix`
-    if (view === 'overview') return `/p/${projectId}`
-    if (view === 'pipeline' && !phaseId) return `/p/${projectId}/pipeline`
-    if (phaseId)
-      return taskId
-        ? `/p/${projectId}/phase/${phaseId}/task/${taskId}`
-        : `/p/${projectId}/phase/${phaseId}`
-    return `/p/${projectId}`
+  const parseRoute = () => parseWorkspaceRoute(location.pathname)
+
+  const urlFor = () => workspacePathFor({ projectId, phaseId, view, releaseId, taskId, detail })
+
+  const syncExpanded = () => {
+    const route: WorkspaceRoute = { projectId, phaseId, view, releaseId, taskId, detail }
+    for (const key of workspaceAncestorKeys(route, releaseDetail?.phase.id ?? null)) {
+      expanded.add(key)
+    }
   }
 
   const syncUrl = (push = true) => {
@@ -340,6 +611,12 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     }
   }
 
+  const loadProjectData = async (id: string): Promise<ProjectData> => {
+    const project = await api.project(id)
+    projectTreeData.set(id, project)
+    return project
+  }
+
   const loadChat = async () => {
     if (!data?.project.docId) {
       chat = null
@@ -354,14 +631,57 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     }
   }
 
+  const loadAgents = async () => {
+    if (!me) {
+      agents = []
+      return
+    }
+    try {
+      agents = (await api.agents()).agents
+    } catch {
+      agents = []
+    }
+  }
+
+  const loadPhaseBurndown = async (id: string | null) => {
+    if (!id || !shouldLoadPhaseBurndown(id, burndownCache)) return
+    burndownCache.set(id, await api.phaseBurndown(id))
+  }
+
   const loadProject = async () => {
     if (!projectId) return
-    data = await api.project(projectId)
-    if (view === 'matrix') matrixData = await api.matrix(projectId)
-    if (phaseId && !burndownCache.has(phaseId)) {
-      burndownCache.set(phaseId, await api.phaseBurndown(phaseId))
+    data = await loadProjectData(projectId)
+    try {
+      projectKeys = (await api.projectKeys(projectId)).keys
+    } catch {
+      projectKeys = []
     }
+    if (view === 'matrix') matrixData = await api.matrix(projectId)
+    if (view === 'pipeline') {
+      projectBurndown = await api.projectBurndown(projectId)
+    }
+    await loadPhaseBurndown(phaseId)
+    await loadAgents()
     await loadChat()
+  }
+
+  const refreshAgents = async () => {
+    const refreshingProject = projectId
+    if (!refreshingProject || !data) return
+    await loadAgents()
+    if (projectId === refreshingProject) render()
+  }
+
+  const toggleProject = async (id: string) => {
+    const key = `project:${id}`
+    if (expanded.has(key)) {
+      expanded.delete(key)
+      render()
+      return
+    }
+    if (!projectTreeData.has(id)) await loadProjectData(id)
+    expanded.add(key)
+    render()
   }
 
   const goHome = () => {
@@ -372,7 +692,9 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     taskDetail = null
     releaseDetail = null
     data = null
+    projectKeys = []
     matrixData = null
+    projectBurndown = null
     detail = 'project'
     view = 'overview'
     history.pushState(null, '', '/')
@@ -383,26 +705,30 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     projectId = id
     phaseId = null
     releaseId = null
+    releaseDetail = null
     detail = 'project'
     view = 'overview'
     taskId = null
     taskDetail = null
+    projectBurndown = null
+    projectKeys = []
     await loadProject()
-    expanded.add(`project:${id}`)
-    if (phaseId) expanded.add(`phase:${phaseId}`)
+    syncExpanded()
     syncUrl()
     render()
   }
 
-  const selectPhase = async (id: string) => {
+  const selectPhase = async (id: string, ownerProjectId = projectId) => {
+    if (ownerProjectId) projectId = ownerProjectId
     phaseId = id
+    releaseId = null
+    releaseDetail = null
     detail = 'project'
     view = 'pipeline'
     taskId = null
     taskDetail = null
     await loadProject()
-    expanded.add(`project:${projectId ?? ''}`)
-    expanded.add(`phase:${id}`)
+    syncExpanded()
     syncUrl()
     render()
   }
@@ -414,14 +740,23 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     render()
   }
 
-  const openTask = async (id: string) => {
+  const openTask = async (id: string, ownerProjectId = projectId) => {
+    if (!ownerProjectId) return
     taskDetail = await api.taskDetail(id)
-    taskId = id
-    phaseId = taskDetail.phase.id
+    const next = navigateToTreeTask(
+      { projectId, phaseId, view, detail, releaseId, taskId },
+      ownerProjectId,
+      taskDetail.phase.id,
+      id,
+    )
+    projectId = next.projectId
+    phaseId = next.phaseId
+    view = next.view
+    detail = next.detail
+    releaseId = next.releaseId
+    taskId = next.taskId
     await loadProject()
-    expanded.add(`project:${projectId ?? ''}`)
-    expanded.add(`phase:${phaseId}`)
-    expanded.add(`tasks:${phaseId}`)
+    syncExpanded()
     syncUrl()
     render()
   }
@@ -433,19 +768,43 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     render()
   }
 
-  const openRelease = async (id: string) => {
-    releaseId = id
-    detail = 'release'
+  const openRelease = async (id: string, ownerProjectId = projectId) => {
+    const reloadMatrix = ownerProjectId
+      ? shouldReloadProjectMatrix({ projectId, view }, ownerProjectId)
+      : false
+    if (ownerProjectId) projectId = ownerProjectId
+    if (ownerProjectId && data?.project.id !== ownerProjectId) {
+      data = await loadProjectData(ownerProjectId)
+      await loadChat()
+    }
+    if (reloadMatrix && ownerProjectId) matrixData = await api.matrix(ownerProjectId)
     releaseDetail = await api.releaseDetail(id)
-    if (projectId) expanded.add(`project:${projectId}`)
-    if (releaseDetail) expanded.add(`phase:${releaseDetail.phase.id}`)
+    if (projectId && releaseDetail) {
+      const next = navigateToTreeRelease(
+        { projectId, phaseId, view, detail, releaseId, taskId },
+        projectId,
+        releaseDetail.phase.id,
+        id,
+      )
+      projectId = next.projectId
+      phaseId = next.phaseId
+      view = next.view
+      detail = next.detail
+      releaseId = next.releaseId
+      taskId = next.taskId
+      taskDetail = null
+      await loadPhaseBurndown(phaseId)
+      expanded.add(`project:${projectId}`)
+      expanded.add(`phase:${phaseId}`)
+    }
     syncUrl()
     render()
   }
 
-  const setView = async (v: 'overview' | 'pipeline' | 'matrix') => {
+  const setView = async (v: 'overview' | 'pipeline' | 'matrix' | 'settings') => {
     view = v
     if (v === 'matrix' && projectId) matrixData = await api.matrix(projectId)
+    if (v === 'pipeline' && projectId) await loadProject()
     syncUrl()
     render()
   }
@@ -480,17 +839,17 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
                 ${projects
                   .map((p) => {
                     const pk = `project:${p.id}`
-                    const pd = data?.project.id === p.id ? data : null
+                    const pd =
+                      projectTreeData.get(p.id) ?? (data?.project.id === p.id ? data : null)
                     return `
                   <div class="ws-tree-node">
                     <div class="ws-tree-row">
-                      ${chevron(pk)}
-                      <button class="ws-tree-label ${p.id === projectId ? 'sel' : ''}" data-project="${p.id}">📁 ${escapeHtml(p.name)}
-                        <span class="ws-count">${p.done}/${p.total}</span></button>
+                      ${projectChevron(p.id)}
+                      ${renderProjectTreeLabel(p, p.id === projectId, isOpen(pk))}
                     </div>
                     ${
                       isOpen(pk)
-                        ? `<div class="ws-tree-children">
+                        ? `<div id="project-children-${escapeHtml(p.id)}" class="ws-tree-children">
                             ${
                               pd
                                 ? pd.phases
@@ -504,7 +863,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
                               <div class="ws-tree-node">
                                 <div class="ws-tree-row">
                                   ${chevron(phk)}
-                                  <button class="ws-tree-label ${ph.id === phaseId ? 'sel' : ''}" data-phase="${ph.id}">◈ ${escapeHtml(ph.name)}
+                                  <button class="ws-tree-label ${ph.id === phaseId ? 'sel' : ''}" data-phase="${ph.id}" data-phase-project="${escapeHtml(p.id)}">◈ ${escapeHtml(ph.name)}
                                     <span class="ws-count">${ph.counts.done}/${ph.counts.total}</span></button>
                                 </div>
                                 ${
@@ -513,7 +872,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
                                         ${phaseReleases
                                           .map(
                                             (rl) =>
-                                              `<button class="ws-tree-leaf" data-tree-release="${rl.id}" data-release-phase="${rl.phaseId}">🚀 ${escapeHtml(rl.name)} <span class="status-pill sp-${rl.demo_status}">${rl.demo_status}</span></button>`,
+                                              `<button class="ws-tree-leaf" data-tree-release="${rl.id}" data-release-project="${escapeHtml(p.id)}" data-release-phase="${rl.phaseId}">🚀 ${escapeHtml(rl.name)} <span class="status-pill sp-${rl.demo_status}">${rl.demo_status}</span></button>`,
                                           )
                                           .join('')}
                                         ${ph.docId ? `<a class="ws-tree-leaf doc-link" href="/d/${encodeURIComponent(ph.docId)}">📄 ${escapeHtml(ph.docTitle ?? 'phase doc')}</a>` : ''}
@@ -528,7 +887,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
                                                   .filter((t) => t.phaseId === ph.id)
                                                   .map(
                                                     (t) =>
-                                                      `<button class="ws-tree-leaf" data-open-task="${t.id}"><span class="dot ws-${t.status}"></span>${escapeHtml(t.title)}</button>`,
+                                                      `<button class="ws-tree-leaf" data-open-task="${t.id}" data-task-project="${escapeHtml(p.id)}"><span class="dot ws-${t.status}"></span>${escapeHtml(t.title)}</button>`,
                                                   )
                                                   .join('')}
                                               </div>`
@@ -562,6 +921,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     if (me) {
       return `<button class="btn sm" id="agent-name" title="Set agent name">🤖 Agent</button>
         <button class="btn sm" id="mint-token" title="Mint API token">Token</button>
+        <a class="btn sm" href="/settings">Settings</a>
         <button class="btn sm" id="logout">Log out</button>`
     }
     return `<button class="btn sm" id="signup-btn">Create account</button>
@@ -692,11 +1052,12 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
           <button class="ws-tab ${view === 'overview' ? 'on' : ''}" data-view="overview">Overview</button>
           <button class="ws-tab ${view === 'pipeline' ? 'on' : ''}" data-view="pipeline">Pipeline</button>
           <button class="ws-tab ${view === 'matrix' ? 'on' : ''}" data-view="matrix">Feature Matrix</button>
+          <button class="ws-tab ${view === 'settings' ? 'on' : ''}" data-view="settings">Settings</button>
         </div>
         <button class="btn sm" id="link-project-doc">Link docs</button>
       </div>
       <div class="ws-project-body">
-        ${view === 'overview' ? renderOverview() : view === 'pipeline' ? renderPipeline(phase, phaseTasks) : renderMatrix()}
+        ${view === 'overview' ? renderOverview() : view === 'pipeline' ? renderPipeline(phase, phaseTasks) : view === 'settings' ? renderProjectSettingsPanel(data.project) : renderMatrix()}
       </div>`
   }
 
@@ -742,7 +1103,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
             .join('')}
         </div>
         <div class="ws-right">
-          ${renderChat()}
+          ${renderAgentsPanel()}
           <button class="btn sm block" id="add-task">+ Task in ${phase ? escapeHtml(phase.name) : 'phase'}</button>
         </div>
         </div>
@@ -795,10 +1156,11 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
               }
             </div>
             ${renderGithub()}
+            ${renderProjectKeys()}
             ${renderAgents()}
             ${data!.project.docId ? `<div class="panel"><h3>Project doc</h3><a class="btn sm" href="/d/${encodeURIComponent(data!.project.docId)}">Open · ${escapeHtml(data!.project.docTitle ?? 'project doc')}</a></div>` : ''}
           </div>
-          <div class="ws-overview-right">${renderChat()}</div>
+          <div class="ws-overview-right">${renderAgentsPanel()}</div>
         </div>
       </div>`
   }
@@ -858,11 +1220,11 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
 
   const renderChat = () => {
     if (!chat) {
-      return `<div class="panel"><h3>Team chat</h3><span class="muted small">Link a project doc containing a \`\`\`chat fence to enable chat.</span></div>`
+      return `<div class="panel"><h3>Chat</h3><span class="muted small">Link a project doc containing a \`\`\`chat fence to enable chat.</span></div>`
     }
     return `
       <div class="panel ws-chat">
-        <h3>Team chat</h3>
+        <h3>Chat</h3>
         <div class="chat-list">
           ${
             chat.lines
@@ -880,6 +1242,13 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       </div>`
   }
 
+  const renderAgentsPanel = () => `
+    <div class="panel ws-agents-panel">
+      <h3>AGENTS</h3>
+      ${renderAgentPresence(agents, data!.tasks)}
+    </div>
+    ${renderChat()}`
+
   const renderGithub = () => {
     const g = data!.project.github
     if (g.enabled) {
@@ -893,6 +1262,24 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       <div class="ws-modal-field"><span>Personal access token (repo scope)</span><input id="gh-token" type="password" placeholder="ghp_…" /></div>
       <button class="btn sm" id="enable-github">Enable sync</button>
       <div class="muted small">Tasks push to GitHub issues; issues created from CanBang tasks import back.</div></div>`
+  }
+
+  const renderProjectKeys = () => {
+    const count = data!.project.apiKeyCount
+    const keyRows = projectKeys.length
+      ? projectKeys
+          .map(
+            (key) =>
+              `<div class="muted small"><code>${escapeHtml(key.id)}</code>${key.label ? ` · ${escapeHtml(key.label)}` : ''}${key.revoked_at ? ' · revoked' : ` <button class="btn sm" data-revoke-project-key="${escapeHtml(key.id)}">Revoke</button>`}</div>`,
+          )
+          .join('')
+      : '<div class="muted small">No project keys minted yet.</div>'
+    return `<div class="panel"><h3>Project settings</h3>
+      <div class="muted small">Mint a project-scoped API key for agents. It can read and update this project's workspace, but cannot access account routes or other projects.</div>
+      <div class="ws-modal-actions" style="margin-top:6px"><button class="btn sm" id="mint-project-key">Mint project API key</button><span class="muted small">${count} active key${count === 1 ? '' : 's'}</span></div>
+      <div style="margin-top:6px">${keyRows}</div>
+      <div class="muted small">The secret is shown once after minting. Store it as <code>Authorization: Bearer pk_...</code>.</div>
+    </div>`
   }
 
   const renderAgents = () => {
@@ -909,40 +1296,10 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       <div class="muted small">Paste the same prompt into each Codex instance — they self-assign roles (one agent per role).</div></div>`
   }
 
-  const renderMatrix = () => {
-    if (!matrixData) return '<div class="panel"><span class="muted">loading matrix…</span></div>'
-    return `
-      <div class="ws-matrix-wrap panel">
-        <table class="ws-matrix">
-          <thead><tr>
-            <th>Feature</th>
-            ${matrixData.phases
-              .map(
-                (ph) =>
-                  `<th>${escapeHtml(ph.name)}<br/><button class="ws-matrix-release" data-release="${ph.release?.id ?? ''}">${escapeHtml(ph.release?.name ?? 'no release')} · <span class="status-pill sp-${ph.release?.demo_status ?? 'pending'}">${ph.release?.demo_status ?? '—'}</span></button></th>`,
-              )
-              .join('')}
-          </tr></thead>
-          <tbody>
-            ${matrixData.rows
-              .map(
-                (row) =>
-                  `<tr><td><b>${escapeHtml(row.feature)}</b></td>${row.cells
-                    .map(
-                      (c) =>
-                        `<td><span class="status-pill sp-${c.status === 'none' ? 'todo' : c.status}">${STATUS_LABEL[c.status] ?? c.status}</span></td>`,
-                    )
-                    .join('')}</tr>`,
-              )
-              .join('')}
-          </tbody>
-        </table>
-        <div class="muted small">Click a release column to open that release's detail view.</div>
-      </div>`
-  }
+  const renderMatrix = () => renderFeatureMatrix(matrixData)
 
   const renderBurndown = (phase: Phase | null) => {
-    const b = phase ? burndownCache.get(phase.id) : undefined
+    const b = phase ? burndownCache.get(phase.id) : projectBurndown
     const counts = phase ? phase.counts : { done: data!.counts.done, total: data!.counts.total }
     const pct = counts.total ? Math.round((counts.done / counts.total) * 100) : 0
     const heading = `<div class="ws-burndown-top-head"><h3>Burndown${phase ? ` · ${escapeHtml(phase.name)}` : ' · all phases'}</h3></div>`
@@ -1101,6 +1458,9 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     document
       .getElementById('new-hq')
       ?.addEventListener('click', () => void createDoc('agent-team-hq'))
+    document.querySelectorAll<HTMLButtonElement>('[data-project-toggle]').forEach((b) => {
+      b.addEventListener('click', () => void toggleProject(b.dataset.projectToggle!))
+    })
     document.querySelectorAll<HTMLButtonElement>('[data-project]').forEach((b) => {
       b.addEventListener('click', () => void selectProject(b.dataset.project!))
     })
@@ -1108,21 +1468,51 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       b.addEventListener('click', () => toggle(b.dataset.toggle!))
     })
     document.querySelectorAll<HTMLButtonElement>('[data-phase]').forEach((b) => {
-      b.addEventListener('click', () => void selectPhase(b.dataset.phase!))
+      b.addEventListener('click', () => {
+        const ownerProjectId = b.dataset.phaseProject ?? projectId
+        if (ownerProjectId) void selectPhase(b.dataset.phase!, ownerProjectId)
+      })
     })
     document.querySelectorAll<HTMLButtonElement>('[data-release]').forEach((b) => {
       b.addEventListener('click', () => void openRelease(b.dataset.release!))
     })
     document.querySelectorAll<HTMLButtonElement>('[data-tree-release]').forEach((b) => {
       b.addEventListener('click', () => {
+        const ownerProjectId = b.dataset.releaseProject ?? projectId
         if (view === 'pipeline') {
-          phaseId = b.dataset.releasePhase ?? null
-          if (projectId) expanded.add(`project:${projectId}`)
-          if (phaseId) expanded.add(`phase:${phaseId}`)
-          syncUrl()
-          render()
+          void (async () => {
+            if (ownerProjectId) {
+              projectId = ownerProjectId
+              if (data?.project.id !== ownerProjectId) {
+                data = await loadProjectData(ownerProjectId)
+                await loadChat()
+              }
+            }
+            const targetPhaseId = b.dataset.releasePhase
+            if (projectId && targetPhaseId) {
+              const next = navigateToTreeRelease(
+                { projectId, phaseId, view, detail, releaseId, taskId },
+                projectId,
+                targetPhaseId,
+                null,
+              )
+              projectId = next.projectId
+              phaseId = next.phaseId
+              view = next.view
+              detail = next.detail
+              releaseId = next.releaseId
+              taskId = next.taskId
+              taskDetail = null
+              releaseDetail = null
+              await loadPhaseBurndown(phaseId)
+              expanded.add(`project:${projectId}`)
+              expanded.add(`phase:${phaseId}`)
+            }
+            syncUrl()
+            render()
+          })()
         } else {
-          void openRelease(b.dataset.treeRelease!)
+          if (ownerProjectId) void openRelease(b.dataset.treeRelease!, ownerProjectId)
         }
       })
     })
@@ -1132,11 +1522,23 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     document.querySelectorAll<HTMLButtonElement>('[data-view]').forEach((b) => {
       b.addEventListener(
         'click',
-        () => void setView(b.dataset.view as 'overview' | 'pipeline' | 'matrix'),
+        () => void setView(b.dataset.view as 'overview' | 'pipeline' | 'matrix' | 'settings'),
       )
     })
+    document
+      .querySelector<HTMLFormElement>('#project-settings-form')
+      ?.addEventListener('submit', (event) => {
+        event.preventDefault()
+        void saveProjectSettings()
+      })
+    document
+      .querySelector<HTMLButtonElement>('#mint-project-key')
+      ?.addEventListener('click', () => void mintProjectKey())
     document.querySelectorAll<HTMLButtonElement>('[data-open-task]').forEach((b) => {
-      b.addEventListener('click', () => void openTask(b.dataset.openTask!))
+      b.addEventListener('click', () => {
+        const ownerProjectId = b.dataset.taskProject ?? projectId
+        if (ownerProjectId) void openTask(b.dataset.openTask!, ownerProjectId)
+      })
     })
     document.querySelectorAll<HTMLButtonElement>('[data-close-task]').forEach((b) => {
       b.addEventListener('click', () => closeTask())
@@ -1161,6 +1563,15 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     })
     document.getElementById('enable-github')?.addEventListener('click', () => void enableGithub())
     document.getElementById('sync-github')?.addEventListener('click', () => void runGithubSync())
+    document
+      .getElementById('mint-project-key')
+      ?.addEventListener('click', () => void mintProjectKey())
+    document.querySelectorAll<HTMLButtonElement>('[data-revoke-project-key]').forEach((button) => {
+      button.addEventListener(
+        'click',
+        () => void revokeProjectKey(button.dataset.revokeProjectKey!),
+      )
+    })
     document.getElementById('onboard-agent')?.addEventListener('click', () => void onboardAgent())
     document
       .getElementById('create-project-hq')
@@ -1393,6 +1804,50 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     render()
   }
 
+  const mintProjectKey = async () => {
+    if (!projectId) return
+    const labelInput = document.getElementById('project-key-label') as HTMLInputElement | null
+    const status = document.getElementById('project-key-status')
+    const output = document.getElementById('project-key-output')
+    let label = labelInput?.value.trim() ?? ''
+    if (!labelInput) {
+      const asked = prompt('Optional project key label:', 'agent')
+      if (asked === null) return
+      label = asked.trim()
+    }
+    try {
+      const result = await api.createProjectKey(projectId, label || undefined)
+      await loadProject()
+      render()
+      if (output && status) {
+        output.hidden = false
+        output.innerHTML =
+          '<strong>New project key (shown once)</strong><code>' + escapeHtml(result.key) + '</code>'
+        status.textContent = 'Store this secret securely before leaving the page.'
+      } else {
+        openInfoModal(
+          'Project API key',
+          `<p>Copy this key now. It will not be shown again.</p>
+           <div class="ws-modal-field"><span>Authorization header</span><textarea readonly rows="2">Bearer ${escapeHtml(result.key)}</textarea></div>
+           <p class="muted small">This key is scoped to <b>${escapeHtml(data?.project.name ?? 'this project')}</b>. Keep it out of source control and chat logs.</p>`,
+        )
+      }
+    } catch (e) {
+      alert(`Project key mint failed: ${(e as Error).message}`)
+    }
+  }
+
+  const revokeProjectKey = async (keyId: string) => {
+    if (!projectId || !confirm('Revoke this project key? Agents using it will lose access.')) return
+    try {
+      await api.revokeProjectKey(projectId, keyId)
+      await loadProject()
+      render()
+    } catch (e) {
+      alert(`Project key revoke failed: ${(e as Error).message}`)
+    }
+  }
+
   const runGithubSync = async () => {
     if (!projectId) return
     const btn = document.getElementById('sync-github')
@@ -1407,6 +1862,28 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     } finally {
       await loadProject()
       render()
+    }
+  }
+
+  const saveProjectSettings = async () => {
+    if (!projectId) return
+    const name =
+      (document.getElementById('project-name') as HTMLInputElement | null)?.value.trim() ?? ''
+    const description =
+      (
+        document.getElementById('project-description') as HTMLTextAreaElement | null
+      )?.value.trim() ?? ''
+    const status = document.getElementById('project-settings-status')
+    if (!name) {
+      if (status) status.textContent = 'Name is required.'
+      return
+    }
+    try {
+      await api.patchProject(projectId, { name, description: description || null })
+      await loadProject()
+      render()
+    } catch (e) {
+      if (status) status.textContent = 'Save failed: ' + (e as Error).message
     }
   }
 
@@ -1531,11 +2008,10 @@ ${data!.project.description ?? 'Ship the current phase, then the next.'}`
       phaseId = taskDetail.phase.id
       await loadProject()
     }
-  } else if (me && projects[0]) {
-    projectId = projects[0].id
-    await loadProject()
   }
+  syncExpanded()
   render()
+  window.setInterval(() => void refreshAgents(), 30_000)
 
   window.addEventListener('popstate', async () => {
     const r = parseRoute()
@@ -1556,6 +2032,7 @@ ${data!.project.description ?? 'Ship the current phase, then the next.'}`
         await loadProject()
       }
     }
+    syncExpanded()
     render()
   })
 }

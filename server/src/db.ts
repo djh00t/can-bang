@@ -385,6 +385,7 @@ export function openDb(path: string): Db {
   ensureColumn(db, 'projects', 'github_sync', 'github_sync INTEGER NOT NULL DEFAULT 0')
   ensureColumn(db, 'projects', 'github_last_synced_at', 'github_last_synced_at INTEGER')
   ensureColumn(db, 'projects', 'board_indexed_at', 'board_indexed_at INTEGER')
+  ensureColumn(db, 'project_keys', 'revoked_at', 'revoked_at INTEGER')
   ensureColumn(db, 'phases', 'doc_id', 'doc_id TEXT REFERENCES docs(id)')
   ensureColumn(db, 'tasks', 'description', 'description TEXT')
   ensureColumn(db, 'tasks', 'blockers', 'blockers TEXT')
@@ -446,14 +447,16 @@ export function bumpContent(
   kind: 'live' | 'plain',
   label?: string,
 ): { version: string; revisionId: string } {
-  const row = db.prepare('SELECT content_seq, suggestion_seq FROM docs WHERE id=?').get(docId) as
-    { content_seq: number; suggestion_seq: number } | undefined
+  const row = db
+    .prepare('SELECT content_seq, suggestion_seq, updated_at FROM docs WHERE id=?')
+    .get(docId) as { content_seq: number; suggestion_seq: number; updated_at: number } | undefined
   const contentSeq = (row?.content_seq ?? 0) + 1
+  const updatedAt = Math.max(now(), (row?.updated_at ?? 0) + 1)
   db.prepare('UPDATE docs SET content=?, content_seq=?, kind=?, updated_at=? WHERE id=?').run(
     content,
     contentSeq,
     kind,
-    now(),
+    updatedAt,
     docId,
   )
   const revisionId = insertRevision(db, docId, content, author, guest, label)

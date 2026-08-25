@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
 import { homedir } from 'node:os'
-import { mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
-import { join, resolve } from 'node:path'
-import { spawn } from 'node:child_process'
+import { mkdirSync, readFileSync, realpathSync, writeFileSync, rmSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { spawn, spawnSync } from 'node:child_process'
 import { randomId } from '@can-bang/core'
 
 const CONFIG_DIR = join(homedir(), '.config', 'mde')
@@ -14,6 +15,52 @@ interface Config {
   token?: string
   author?: string
   cursors?: Record<string, number>
+}
+
+export interface ActivityEvent {
+  seq: number
+  type: string
+  ts: number
+  actor: string
+  payload: Record<string, unknown>
+}
+
+export interface AgentSnapshot {
+  name: string
+  role: string
+  freshness: 'live' | 'idle' | 'stale'
+  currentDoc: string | null
+  currentTask: string | null
+}
+
+export function formatActivity(events: readonly ActivityEvent[], json = false): string {
+  if (json) return `${JSON.stringify(events, null, 2)}\n`
+  if (!events.length) return 'No recent activity.\n'
+  return `${events
+    .map(
+      (event) =>
+        `${new Date(event.ts).toISOString()} ${event.type} @${event.actor} ${JSON.stringify(event.payload)}`,
+    )
+    .join('\n')}\n`
+}
+
+export function nextActivityCursor(
+  since: number,
+  page: { capped?: unknown; latest?: unknown },
+): number | null {
+  if (page.capped !== true) return null
+  const latest = Number(page.latest)
+  return Number.isSafeInteger(latest) && latest > since ? latest : null
+}
+
+export function formatAgentFreshness(agents: readonly AgentSnapshot[]): string {
+  if (!agents.length) return 'No registered agents.\n'
+  return `${agents
+    .map((agent) => {
+      const label = agent.freshness === 'stale' ? 'STALE' : 'AGENT'
+      return `${label} @${agent.name} freshness=${agent.freshness} role=${agent.role} doc=${agent.currentDoc ?? '-'} task=${agent.currentTask ?? '-'}`
+    })
+    .join('\n')}\n`
 }
 
 function loadConfig(): Config {
@@ -91,7 +138,7 @@ async function readMarkdown(id: string): Promise<{ content: string; version: str
   }
 }
 
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const args = process.argv.slice(2)
   const verb = args[0]
   if (!verb || verb === '--help' || verb === 'help') {
@@ -138,7 +185,7 @@ Folders and skills
 Presence
   mde register <name> [--role chief] [--harness x]
   mde heartbeat <name>
-  mde activity <name>
+  mde activity <doc> [--json]
 
 Chief supervision
   mde chief-supervisor [--chief name] [--interval sec]   (help: mde chief-supervisor help)
@@ -148,7 +195,9 @@ Feedback
 
 Tasks
   mde projects [--json]
+  mde burndown <projectId> [--days N] [--json]
   mde tasks <projectId> [--json]
+  mde project-key <projectId> [--label label] [--json]
   mde task <taskId> [--json]
   mde task new <phaseId> <title> [--status s] [--assignee a] [--feature f] [--priority p]
       [--done-means m] [--acceptance a] [--context c] [--description d] [--blockers b]
@@ -453,37 +502,21 @@ Environment: MDE_URL, MDE_TOKEN, MDE_AUTHOR
     }
   }
   if (verb === 'activity') {
-    const name = pos(1)
-    if (!name) fail({ status: 400, json: { error: 'name required' } })
-    console.error(`watching activity for ${name}…`)
+    const doc = pos(1)
+    if (!doc) fail({ status: 400, json: { error: 'doc required' } })
+    const id = parseDoc(doc)
+    const events: ActivityEvent[] = []
+    let since = 0
     for (;;) {
-      const r = await req('GET', '/api/agents')
-      if (r.status !== 200) {
-        await new Promise((x) => setTimeout(x, 5000))
-        continue
-      }
-      const agents = r.json.agents as { name: string; currentDoc: string | null }[]
-      const agent = agents.find((a) => a.name === name)
-      const doc = agent?.currentDoc
-      if (!doc) {
-        await new Promise((x) => setTimeout(x, 5000))
-        continue
-      }
-      const ev = await req(
-        'GET',
-        `/api/docs/${doc}/events?since=latest&wait=55&mention=${encodeURIComponent(name)}`,
-      )
-      if (ev.status === 200) {
-        const events = ev.json.events as {
-          seq: number
-          type: string
-          ts: number
-          payload: Record<string, unknown>
-        }[]
-        for (const e of events)
-          console.log(`${new Date(e.ts).toISOString()} ${e.type} ${JSON.stringify(e.payload)}`)
-      }
+      const r = await req('GET', `/api/docs/${id}/events?since=${since}`)
+      if (r.status !== 200) fail(r)
+      events.push(...((r.json.events ?? []) as ActivityEvent[]))
+      const next = nextActivityCursor(since, r.json)
+      if (next === null) break
+      since = next
     }
+    process.stdout.write(formatActivity(events, has('--json')))
+    return
   }
   if (verb === 'chief-supervisor') {
     if (pos(1) === 'help') {
@@ -491,17 +524,23 @@ Environment: MDE_URL, MDE_TOKEN, MDE_AUTHOR
 
 Usage: mde chief-supervisor [--chief <name>] [--interval <seconds>]
 
-Loops: heartbeat the chief, sweep the owner's inbox, and print briefs for
-anything needing a human. Ctrl-C to stop.`)
+Loops: heartbeat the chief, report registered-agent freshness, sweep the
+owner's inbox, and print briefs for anything needing a human. Ctrl-C to stop.`)
       return
     }
     const chief = flag('--chief') ?? env().author ?? 'chief'
     const interval = Math.max(Number(flag('--interval') ?? 60), 10)
-    console.error(`chief supervisor running as ${chief} (every ${interval}s)`)
+    console.error(`chief supervisor running as ${chief} (every ${interval}s; stale threshold 30m)`)
     for (;;) {
       const hb = await req('POST', '/api/agents/heartbeat', { name: chief })
       if (hb.status !== 200)
         console.error(`heartbeat failed: ${String(hb.json.error ?? hb.status)}`)
+      const agents = await req('GET', '/api/agents')
+      if (agents.status === 200) {
+        process.stdout.write(formatAgentFreshness((agents.json.agents ?? []) as AgentSnapshot[]))
+      } else {
+        console.error(`agent poll failed: ${agents.status}`)
+      }
       const inbox = await req('GET', '/api/inbox')
       if (inbox.status === 200) {
         const items = inbox.json.items as {
@@ -656,6 +695,17 @@ anything needing a human. Ctrl-C to stop.`)
     return body
   }
 
+  if (verb === 'project-key') {
+    const project = pos(1)
+    if (!project) fail({ status: 400, json: { error: 'projectId required' } })
+    const label = flag('--label')
+    const r = await req('POST', '/api/projects/' + project + '/key', label ? { label } : {})
+    if (r.status !== 201) fail(r)
+    if (has('--json')) console.log(JSON.stringify(r.json, null, 2))
+    else console.log(String(r.json.key ?? ''))
+    return
+  }
+
   if (verb === 'projects') {
     const r = await req('GET', '/api/projects')
     if (r.status !== 200) fail(r)
@@ -668,6 +718,25 @@ anything needing a human. Ctrl-C to stop.`)
     else
       for (const p of projects)
         console.log(`${p.id}\t${p.name}\t${p.counts.done}/${p.counts.total}`)
+    return
+  }
+  if (verb === 'burndown') {
+    const project = pos(1)
+    if (!project) fail({ status: 400, json: { error: 'projectId required' } })
+    const days = flag('--days')
+    const query = days === undefined ? '' : `?days=${encodeURIComponent(days)}`
+    const r = await req('GET', `/api/projects/${encodeURIComponent(project)}/burndown${query}`)
+    if (r.status !== 200) fail(r)
+    const burndown = r.json as {
+      points?: { date: string; remaining: number }[]
+      total?: number
+      current?: number
+    }
+    if (has('--json')) console.log(JSON.stringify(burndown, null, 2))
+    else {
+      console.log(`${burndown.current ?? 0} remaining of ${burndown.total ?? 0}`)
+      for (const point of burndown.points ?? []) console.log(`${point.date}\t${point.remaining}`)
+    }
     return
   }
   if (verb === 'tasks') {
@@ -758,6 +827,17 @@ function serviceId(docId: string): string {
   return `mde-watch-${docId.replace(/[^A-Za-z0-9_-]/g, '')}`
 }
 
+export function daemonServicePath(
+  docId: string,
+  platform: NodeJS.Platform = process.platform,
+  home: string = homedir(),
+): string {
+  const id = serviceId(docId)
+  return platform === 'darwin'
+    ? join(home, 'Library', 'LaunchAgents', `${id}.plist`)
+    : join(home, '.config', 'systemd', 'user', `${id}.service`)
+}
+
 function installDaemon(docId: string, execCmd: string, persist: boolean): void {
   const cliPath = resolve(process.argv[1] ?? '')
   const cmdArgs = [cliPath, 'watch', docId]
@@ -767,7 +847,8 @@ function installDaemon(docId: string, execCmd: string, persist: boolean): void {
   mkdirSync(logsDir, { recursive: true })
   const id = serviceId(docId)
   if (process.platform === 'darwin') {
-    const plistDir = join(homedir(), 'Library', 'LaunchAgents')
+    const plistPath = daemonServicePath(docId)
+    const plistDir = dirname(plistPath)
     mkdirSync(plistDir, { recursive: true })
     const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -778,10 +859,11 @@ function installDaemon(docId: string, execCmd: string, persist: boolean): void {
   <key>StandardOutPath</key><string>${join(logsDir, `${id}.log`)}</string>
   <key>StandardErrorPath</key><string>${join(logsDir, `${id}.log`)}</string>
 </dict></plist>`
-    writeFileSync(join(plistDir, `${id}.plist`), plist)
-    spawn('launchctl', ['load', '-w', join(plistDir, `${id}.plist`)], { stdio: 'inherit' })
+    writeFileSync(plistPath, plist)
+    spawn('launchctl', ['load', '-w', plistPath], { stdio: 'inherit' })
   } else {
-    const unitDir = join(homedir(), '.config', 'systemd', 'user')
+    const unitPath = daemonServicePath(docId)
+    const unitDir = dirname(unitPath)
     mkdirSync(unitDir, { recursive: true })
     const escape = (a: string) => `'${a.replace(/'/g, `'\\''`)}'`
     const unit = `[Unit]
@@ -794,7 +876,7 @@ Restart=on-failure
 [Install]
 WantedBy=default.target
 `
-    writeFileSync(join(unitDir, `${id}.service`), unit)
+    writeFileSync(unitPath, unit)
     spawn('systemctl', ['--user', 'daemon-reload'], { stdio: 'inherit' })
     spawn('systemctl', ['--user', 'enable', '--now', `${id}.service`], { stdio: 'inherit' })
   }
@@ -803,17 +885,26 @@ WantedBy=default.target
 function removeDaemon(docId: string): void {
   const id = serviceId(docId)
   if (process.platform === 'darwin') {
-    const plist = join(homedir(), 'Library', 'LaunchAgents', `${id}.plist`)
-    spawn('launchctl', ['unload', '-w', plist], { stdio: 'inherit' })
+    const plist = daemonServicePath(docId)
+    const uid = typeof process.getuid === 'function' ? process.getuid() : undefined
+    const bootout =
+      uid === undefined
+        ? { status: 1 }
+        : spawnSync('launchctl', ['bootout', `gui/${uid}/${id}`], { stdio: 'inherit' })
+    if (bootout.status !== 0) spawnSync('launchctl', ['unload', '-w', plist], { stdio: 'inherit' })
     rmSync(plist, { force: true })
   } else {
-    const unit = join(homedir(), '.config', 'systemd', 'user', `${id}.service`)
+    const unit = daemonServicePath(docId)
     spawn('systemctl', ['--user', 'disable', '--now', `${id}.service`], { stdio: 'inherit' })
     rmSync(unit, { force: true })
   }
 }
 
-void main().catch((err) => {
-  console.error(String(err instanceof Error ? err.message : err))
-  process.exit(1)
-})
+const entryPath = process.argv[1] ? realpathSync(process.argv[1]) : ''
+const modulePath = realpathSync(fileURLToPath(import.meta.url))
+if (entryPath === modulePath) {
+  void main().catch((err) => {
+    console.error(String(err instanceof Error ? err.message : err))
+    process.exit(1)
+  })
+}
