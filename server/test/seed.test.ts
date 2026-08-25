@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { makeCtx, account, type TestCtx } from './helpers.js'
+import { closeCtx, makeCtx, account, type TestCtx } from './helpers.js'
 import { seedSkillsIfFirst, upgradeSeededSkillsV2 } from '../src/seed.js'
 
 describe('seeded skills', () => {
   let ctx: TestCtx
-  beforeEach(() => {
-    ctx = makeCtx()
+  beforeEach(async () => {
+    ctx = await makeCtx()
   })
-  afterEach(() => {
-    ctx.db.close()
+  afterEach(async () => {
+    await closeCtx(ctx)
   })
 
   it('upgrades seeded skills to v2 with template files and a stamped manifest', async () => {

@@ -150,6 +150,7 @@ Tasks
   mde projects [--json]
   mde burndown <projectId> [--days N] [--json]
   mde tasks <projectId> [--json]
+  mde project-key <projectId> [--label label] [--json]
   mde task <taskId> [--json]
   mde task new <phaseId> <title> [--status s] [--assignee a] [--feature f] [--priority p]
       [--done-means m] [--acceptance a] [--context c] [--description d] [--blockers b]
@@ -655,6 +656,17 @@ anything needing a human. Ctrl-C to stop.`)
       body[name === '--done-means' ? 'done_means' : name.slice(2)] = value === '' ? null : value
     }
     return body
+  }
+
+  if (verb === 'project-key') {
+    const project = pos(1)
+    if (!project) fail({ status: 400, json: { error: 'projectId required' } })
+    const label = flag('--label')
+    const r = await req('POST', '/api/projects/' + project + '/key', label ? { label } : {})
+    if (r.status !== 201) fail(r)
+    if (has('--json')) console.log(JSON.stringify(r.json, null, 2))
+    else console.log(String(r.json.key ?? ''))
+    return
   }
 
   if (verb === 'projects') {
