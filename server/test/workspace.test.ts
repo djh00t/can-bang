@@ -110,7 +110,7 @@ describe('workspace hierarchy', () => {
     const task = await request(ctx.app)
       .post(`/api/phases/${phaseId}/tasks`)
       .set(auth)
-      .send({ title: 'Agent task' })
+      .send({ title: 'Agent task', ...MIN_SPEC })
     expect(task.status).toBe(201)
     const taskDetail = await request(ctx.app).get(`/api/tasks/${task.body.task.id}`).set(auth)
     expect(taskDetail.status).toBe(200)
