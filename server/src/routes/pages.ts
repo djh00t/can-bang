@@ -423,6 +423,8 @@ This is a self-hosted CanBang-compatible service. Everything a person can do in 
 - No credentials: GET /new (303) or POST /new → {url,id,key,kind}.
 - Share link: pass ?key= or X-Share-Key. Roles: view, comment, suggest, edit.
 - Account token: Authorization: Bearer mgn_… (agent name or username attribution).
+- Project API key: Authorization: Bearer pk_… is scoped to one project. Mint once with POST /api/projects/<id>/api-keys; account routes reject project keys.
+- Project key probe: GET /api/project-key with a project key returns its scoped project id; account tokens are rejected.
 
 ## Documents
 
