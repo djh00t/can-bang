@@ -19,6 +19,9 @@ interface ActionCtx {
   role: string
 }
 
+type Cursor = { start: number; end: number }
+type RemoteCursor = { name: string; cursor: Cursor }
+
 export async function mountEditor(
   root: HTMLElement,
   docId: string,
@@ -33,6 +36,8 @@ export async function mountEditor(
   let unclaimed = false
   let title = ''
   let me = await api.me()
+  const remoteCursors = new Map<string, RemoteCursor>()
+  let socket: WebSocket | null = null
   const storedAuthor = localStorage.getItem('wb.author') ?? ''
   const author =
     me?.user.agent_name ??
@@ -41,6 +46,27 @@ export async function mountEditor(
     prompt('Author name (for guest attribution):') ??
     'Guest'
   if (!me && author && author !== 'Guest') localStorage.setItem('wb.author', author)
+
+  const canWrite = () => !readonly && (role === 'edit' || role === 'owner')
+  const canComment = () => !readonly && role !== 'view'
+
+  const sendCursor = () => {
+    if (readonly || !socket || socket.readyState !== WebSocket.OPEN) return
+    const source = document.getElementById('source') as HTMLTextAreaElement | null
+    if (!source) return
+    socket.send(
+      JSON.stringify({
+        type: 'cursor',
+        cursor: { start: source.selectionStart, end: source.selectionEnd },
+      }),
+    )
+  }
+
+  const renderRemoteCursors = () => {
+    const target = document.getElementById('remote-cursors')
+    if (!target) return
+    target.innerHTML = renderRemoteCursorChips(remoteCursors)
+  }
 
   const reload = async () => {
     const [doc, meta] = await Promise.all([api.readDoc(docId, key), api.meta(docId, key)])
@@ -94,20 +120,17 @@ export async function mountEditor(
           </div>
           <div class="wb-top-actions">
             <span class="live-dot" id="live-dot" title="realtime connection"></span>
-            <span class="wb-role-badge">${escapeHtml(role)}</span>
-            ${unclaimed && me ? `<button class="btn" id="claim-btn">Claim this doc</button>` : ''}
-            ${role === 'edit' || role === 'owner' ? `<button class="btn" id="share-btn">Share</button>` : ''}
-            <button class="btn" id="edit-btn">${editing ? 'Preview' : 'Edit'}</button>
+            ${renderEditorActions(readonly, role, editing, Boolean(unclaimed && me))}
             <a class="btn-link" href="/">Dashboard</a>
           </div>
         </header>
         <div class="wb-layout">
           ${unclaimed && me ? '<div class="wb-banner">This document belongs to no account. Claim it to protect it and see it in your dashboard.</div>' : ''}
           <main class="wb-main">
-            ${editing ? renderEditor() : renderPreview()}
+            ${!readonly && editing ? renderEditor() : renderPreview()}
           </main>
           <aside class="wb-side">
-            ${role !== 'view' ? renderChatPanel() : ''}
+            ${canComment() ? renderChatPanel() : ''}
             ${renderStatusPanel()}
             ${renderCommentsPanel()}
             ${renderSuggestionsPanel()}
@@ -115,10 +138,14 @@ export async function mountEditor(
             ${renderAsksPanel()}
           </aside>
         </div>
-        <footer class="wb-presence" id="presence">watching…</footer>
+        <footer class="wb-presence">
+          <span id="presence">watching…</span>
+          <span class="wb-remote-cursors" id="remote-cursors" aria-live="polite"></span>
+        </footer>
       </div>`
     bootstrapComponents()
     wire()
+    renderRemoteCursors()
   }
 
   const renderEditor = () => `
@@ -165,7 +192,7 @@ export async function mountEditor(
         <div class="status-badge ${state ?? ''}">${escapeHtml(state ?? 'none')}</div>
         <ul class="status-lines">${lines.map((l) => `<li>${renderInlineSafe(l)}</li>`).join('')}</ul>
         ${checklist.length ? `<ul class="checklist">${checklist.map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul>` : ''}
-        ${role === 'edit' || role === 'owner' ? renderStatusButtons() : ''}
+        ${canWrite() ? renderStatusButtons() : ''}
       </section>`
   }
 
@@ -180,7 +207,7 @@ export async function mountEditor(
     <section class="panel">
       <h3>Comments</h3>
       <div id="comments-list"><span class="muted">loading…</span></div>
-      ${role === 'view' ? '' : `<div class="comment-compose"><input id="comment-body" placeholder="Add a comment…" /><button class="btn sm primary" id="comment-add">Add</button></div>`}
+      ${canComment() ? `<div class="comment-compose"><input id="comment-body" placeholder="Add a comment…" /><button class="btn sm primary" id="comment-add">Add</button></div>` : ''}
     </section>`
 
   const renderSuggestionsPanel = () => `
@@ -199,13 +226,14 @@ export async function mountEditor(
     <section class="panel">
       <h3>Asks</h3>
       <div id="asks-list"><span class="muted">loading…</span></div>
-      ${role === 'view' ? '' : `<div class="ask-compose"><input id="ask-body" placeholder="Ask the team…" /><button class="btn sm primary" id="ask-add">Ask</button></div>`}
+      ${canComment() ? `<div class="ask-compose"><input id="ask-body" placeholder="Ask the team…" /><button class="btn sm primary" id="ask-add">Ask</button></div>` : ''}
     </section>`
 
   const wire = () => {
     const editBtn = document.getElementById('edit-btn')
     if (editBtn) {
       editBtn.addEventListener('click', () => {
+        if (readonly) return
         editing = !editing
         render()
         if (editing) {
@@ -219,6 +247,14 @@ export async function mountEditor(
           })
         }
       })
+    }
+    const source = document.getElementById('source') as HTMLTextAreaElement | null
+    if (source) {
+      source.addEventListener('select', sendCursor)
+      source.addEventListener('keyup', sendCursor)
+      source.addEventListener('click', sendCursor)
+      source.addEventListener('input', sendCursor)
+      sendCursor()
     }
     document.getElementById('share-btn')?.addEventListener('click', () => void share())
     document.getElementById('claim-btn')?.addEventListener('click', () => void claim())
@@ -240,7 +276,7 @@ export async function mountEditor(
   const wireBoard = () => {
     document.querySelectorAll<HTMLElement>('.board-card').forEach((card) => {
       card.addEventListener('click', () => {
-        if (role !== 'edit' && role !== 'owner') return
+        if (readonly || (role !== 'edit' && role !== 'owner')) return
         const col = card.dataset.column!
         const text = card.dataset.text!
         const state = card.dataset.state!
@@ -276,6 +312,7 @@ export async function mountEditor(
   const wireChatFences = () => {
     document.querySelectorAll<HTMLElement>('[data-chat-fence]').forEach((el) => {
       el.addEventListener('click', () => {
+        if (readonly) return
         const fence = findFences(content).find(
           (f) => f.kind === 'chat' && f.id === el.dataset.chatFence,
         )
@@ -332,7 +369,7 @@ export async function mountEditor(
             .map(
               (s) =>
                 `<div class="suggestion ${s.status}"><code>${escapeHtml(s.type)}</code> ${escapeHtml((s.find ?? s.text ?? '').slice(0, 60))} — @${escapeHtml(s.author)}
-                 ${s.status === 'pending' && (role === 'edit' || role === 'owner') ? `<button class="btn sm" data-accept="${s.id}">Accept</button><button class="btn sm" data-reject="${s.id}">Reject</button>` : `<span class="tag">${escapeHtml(s.status)}</span>`}</div>`,
+                 ${s.status === 'pending' && canWrite() ? `<button class="btn sm" data-accept="${s.id}">Accept</button><button class="btn sm" data-reject="${s.id}">Reject</button>` : `<span class="tag">${escapeHtml(s.status)}</span>`}</div>`,
             )
             .join('')
         : '<span class="muted">No suggestions</span>'
@@ -356,7 +393,7 @@ export async function mountEditor(
             .slice(0, 10)
             .map(
               (r) =>
-                `<div class="rev"><span>${escapeHtml(r.label ?? 'edit')}</span> <span class="muted">@${escapeHtml(r.author)}</span> <button class="btn sm" data-restore="${r.id}">restore</button></div>`,
+                `<div class="rev"><span>${escapeHtml(r.label ?? 'edit')}</span> <span class="muted">@${escapeHtml(r.author)}</span> ${canWrite() ? `<button class="btn sm" data-restore="${r.id}">restore</button>` : ''}</div>`,
             )
             .join('')
         : '<span class="muted">No versions yet</span>'
@@ -385,8 +422,8 @@ export async function mountEditor(
             .map(
               (a) =>
                 `<div class="ask"><span class="tag">${escapeHtml(a.state)}</span> ${renderInlineSafe(a.text)}${a.claimedBy ? ` <span class="muted">— @${escapeHtml(a.claimedBy)}</span>` : ''}
-                 ${a.state === 'open' && role !== 'view' ? `<button class="btn sm" data-claim="${a.id}">Claim</button>` : ''}
-                 ${a.state === 'claimed' && role !== 'view' ? `<button class="btn sm" data-resolve="${a.id}">Resolve</button>` : ''}</div>`,
+                 ${a.state === 'open' && canComment() ? `<button class="btn sm" data-claim="${a.id}">Claim</button>` : ''}
+                 ${a.state === 'claimed' && canComment() ? `<button class="btn sm" data-resolve="${a.id}">Resolve</button>` : ''}</div>`,
             )
             .join('')
         : '<span class="muted">No asks</span>'
@@ -406,6 +443,7 @@ export async function mountEditor(
   }
 
   const sendChat = async () => {
+    if (!canComment()) return
     const input = document.getElementById('chat-input') as HTMLInputElement | null
     if (!input || !input.value.trim()) return
     const fences = findFences(content).filter((f) => f.kind === 'chat')
@@ -415,6 +453,7 @@ export async function mountEditor(
   }
 
   const setStatus = async (state: string) => {
+    if (!canWrite()) return
     const note =
       state === 'awaiting-human' ? (prompt('What do you need from the human?') ?? '') : undefined
     await api.setStatus(docId, key, state, note)
@@ -422,6 +461,7 @@ export async function mountEditor(
   }
 
   const addComment = async () => {
+    if (!canComment()) return
     const input = document.getElementById('comment-body') as HTMLInputElement | null
     if (!input) return
     const text = input.value.trim()
@@ -433,6 +473,7 @@ export async function mountEditor(
   }
 
   const addAsk = async () => {
+    if (!canComment()) return
     const input = document.getElementById('ask-body') as HTMLInputElement | null
     if (!input) return
     const text = input.value.trim()
@@ -443,6 +484,7 @@ export async function mountEditor(
   }
 
   const share = async () => {
+    if (readonly) return
     try {
       const res = await fetch(`/api/docs/${docId}/shares`, {
         method: 'POST',
@@ -462,6 +504,7 @@ export async function mountEditor(
   }
 
   const claim = async () => {
+    if (readonly) return
     try {
       await api.claimDoc(docId, key)
       await reload()
@@ -567,7 +610,7 @@ export async function mountEditor(
       const spec = JSON.parse(fence.body) as { title?: string; state?: unknown; html?: string }
       const lines = content.split('\n')
       lines[fence.start + 1] = JSON.stringify({ ...spec, state: msg.state })
-      void save(lines.join('\n'), 'widget state')
+      if (!readonly) void save(lines.join('\n'), 'widget state')
     } catch {
       /* ignore */
     }
@@ -636,18 +679,48 @@ export async function mountEditor(
   // Live events loop + presence via WebSocket
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   try {
-    const ws = new WebSocket(
+    const liveSocket = new WebSocket(
       `${proto}://${location.host}/ws?doc=${encodeURIComponent(docId)}&key=${encodeURIComponent(key)}`,
     )
-    ws.onmessage = (ev) => {
+    socket = liveSocket
+    liveSocket.onopen = () => {
+      document.getElementById('live-dot')?.classList.add('on')
+      sendCursor()
+    }
+    liveSocket.onclose = () => {
+      socket = null
+      document.getElementById('live-dot')?.classList.remove('on')
+    }
+    liveSocket.onmessage = (ev) => {
       const msg = JSON.parse(ev.data as string) as {
         type?: string
+        clientId?: string
+        name?: string
         names?: string[]
+        cursor?: Cursor | null
         event?: { type?: string }
       }
       const presence = document.getElementById('presence')
       const dot = document.getElementById('live-dot')
       if (dot) dot.classList.add('on')
+      if (msg.type === 'cursor' && msg.clientId) {
+        const cursor = msg.cursor
+        if (
+          cursor &&
+          Number.isFinite(cursor.start) &&
+          Number.isFinite(cursor.end) &&
+          cursor.start >= 0 &&
+          cursor.end >= 0
+        ) {
+          remoteCursors.set(msg.clientId, {
+            name: msg.name ?? 'Guest',
+            cursor: { start: cursor.start, end: cursor.end },
+          })
+        } else {
+          remoteCursors.delete(msg.clientId)
+        }
+        renderRemoteCursors()
+      }
       if (presence) {
         if (msg.type === 'typing')
           presence.textContent = msg.names?.length ? `${msg.names.join(', ')} typing…` : 'watching…'
@@ -682,6 +755,28 @@ export async function mountEditor(
     setTimeout(() => void poll(), 1000)
   }
   void poll()
+}
+
+export function renderEditorActions(
+  isReadonly: boolean,
+  currentRole: string,
+  isEditing: boolean,
+  showClaim: boolean,
+): string {
+  if (isReadonly) return '<span class="wb-role-badge">view</span>'
+  return `<span class="wb-role-badge">${escapeHtml(currentRole)}</span>
+    ${showClaim ? '<button class="btn" id="claim-btn">Claim this doc</button>' : ''}
+    ${currentRole === 'edit' || currentRole === 'owner' ? '<button class="btn" id="share-btn">Share</button>' : ''}
+    <button class="btn" id="edit-btn">${isEditing ? 'Preview' : 'Edit'}</button>`
+}
+
+export function renderRemoteCursorChips(cursors: ReadonlyMap<string, RemoteCursor>): string {
+  return [...cursors.values()]
+    .map(
+      ({ name, cursor }) =>
+        `<span class="wb-cursor-chip"><span class="wb-cursor-mark" aria-hidden="true"></span>@${escapeHtml(name)} at ${cursor.start}</span>`,
+    )
+    .join('')
 }
 
 function renderInlineSafe(s: string): string {
