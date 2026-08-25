@@ -1,6 +1,5 @@
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
 import { ApiError } from '@can-bang/core'
 import type { AppServices } from './service.js'
 import { RateLimiter } from './rate.js'
@@ -14,6 +13,7 @@ import { asksRoutes } from './routes/asks.js'
 import { orgRoutes } from './routes/org.js'
 import { extrasRoutes } from './routes/extras.js'
 import { workspaceRoutes } from './routes/workspace.js'
+import { webFile, webRoot } from './web-root.js'
 
 export function createApp(services: AppServices): express.Express {
   const app = express()
@@ -53,7 +53,7 @@ export function createApp(services: AppServices): express.Express {
   })
 
   // Static web assets
-  const webDir = join(process.cwd(), 'web')
+  const webDir = webRoot()
   if (existsSync(webDir)) {
     app.use(express.static(webDir, { index: false, maxAge: '1h' }))
   }
@@ -94,7 +94,7 @@ export function createApp(services: AppServices): express.Express {
       res.status(404).json({ error: 'route not found' })
       return
     }
-    const index = join(process.cwd(), 'web', 'index.html')
+    const index = webFile('index.html')
     if (existsSync(index)) res.sendFile(index)
     else res.status(404).send('not found')
   })

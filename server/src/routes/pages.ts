@@ -1,6 +1,5 @@
 import express, { type Request, type Response } from 'express'
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { randomId } from '@can-bang/core'
 import type { AppServices } from '../service.js'
 import { mintShare, resolveAccess, shareKey } from '../auth.js'
@@ -8,6 +7,7 @@ import { bumpContent, docVersion } from '../db.js'
 import { asyncHandler, clientUrl } from '../util.js'
 import { getDoc } from './docs.js'
 import { now } from '@can-bang/core'
+import { webFile } from '../web-root.js'
 
 const CLI_AGENTS = /curl|wget|httpie|python-requests|httpx|go-http-client|node|undici|node-fetch/i
 
@@ -74,7 +74,7 @@ export function pagesRoutes(services: AppServices): express.Router {
         res.type('text/markdown').send(handoffMarkdown(services, req, doc.id, access.role))
         return
       }
-      sendSpa(res, services)
+      sendSpa(res, services, req)
     }),
   )
 
@@ -107,15 +107,15 @@ export function pagesRoutes(services: AppServices): express.Router {
         res.status(403).json({ error: 'you do not have access to this document' })
         return
       }
-      sendSpa(res, services)
+      sendSpa(res, services, req)
     }),
   )
 
   // /p/... — workspace hierarchy routes are rendered by the web SPA.
   // Keep this fallback server-side so every project, phase, release, and task
   // URL (including matrix release links) can be refreshed or opened directly.
-  r.get(/^\/p(?:\/.*)?$/, (_req: Request, res: Response) => {
-    sendSpa(res, services)
+  r.get(/^\/p(?:\/.*)?$/, (req: Request, res: Response) => {
+    sendSpa(res, services, req)
   })
 
   // /d/:id?format=agent.json and /d/:id/agent.json
@@ -145,7 +145,7 @@ export function pagesRoutes(services: AppServices): express.Router {
       const ua = req.headers['user-agent'] ?? ''
       if (accept.includes('text/html') && !CLI_AGENTS.test(ua)) {
         try {
-          const template = readFileSync(join(process.cwd(), 'web', 'reference.html'), 'utf8')
+          const template = readFileSync(webFile('reference.html'), 'utf8')
           const payload = JSON.stringify({ markdown, title }).replace(/</g, '\\u003c')
           res.type('html').send(template.replace('__PAYLOAD__', payload))
         } catch {
@@ -160,10 +160,15 @@ export function pagesRoutes(services: AppServices): express.Router {
   return r
 }
 
-function sendSpa(res: Response, services: AppServices): void {
+function sendSpa(res: Response, services: AppServices, req: Request): void {
   try {
-    const html = readFileSync(join(process.cwd(), 'web', 'index.html'), 'utf8')
-    res.type('html').send(html)
+    const html = readFileSync(webFile('index.html'), 'utf8')
+    const imageUrl = clientUrl(req, services.config.publicUrl) + '/og-image.png'
+    const rendered = html.replaceAll(
+      'content="/og-image.png"',
+      'content="' + escapeHtmlAttribute(imageUrl) + '"',
+    )
+    res.type('html').send(rendered)
   } catch {
     res
       .type('html')
@@ -171,6 +176,19 @@ function sendSpa(res: Response, services: AppServices): void {
         '<!doctype html><html><head><title>CanBang</title></head><body><h1>CanBang</h1><p>The web editor is not bundled in this build.</p></body></html>',
       )
   }
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => {
+    const entities: Record<string, string> = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    }
+    return entities[char]!
+  })
 }
 
 export function agentManifest(

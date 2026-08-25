@@ -50,6 +50,29 @@ describe('pages, handoff, and 0.3 extras', () => {
     expect(pub.status).toBe(200)
   })
 
+  it('serves social preview metadata and a 1200x630 image', async () => {
+    const { id, key } = await anonDoc(ctx.app)
+    const page = await request(ctx.app)
+      .get(`/d/${id}`)
+      .query({ key })
+      .set('accept', 'text/html')
+      .set('user-agent', 'Mozilla/5.0 (social scraper)')
+    expect(page.status).toBe(200)
+    expect(page.text).toContain('<meta property="og:title" content="CanBang — Multi-Agent Canvas"')
+    expect(page.text).toMatch(/<meta property="og:image" content="https?:\/\/[^"]+\/og-image\.png"/)
+    expect(page.text).toMatch(
+      /<meta name="twitter:image" content="https?:\/\/[^"]+\/og-image\.png"/,
+    )
+    expect(page.text).toContain('<meta property="og:image:width" content="1200"')
+    expect(page.text).toContain('<meta property="og:image:height" content="630"')
+
+    const image = await request(ctx.app).get('/og-image.png')
+    expect(image.status).toBe(200)
+    expect(image.headers['content-type']).toContain('image/png')
+    expect(image.body.readUInt32BE(16)).toBe(1200)
+    expect(image.body.readUInt32BE(20)).toBe(630)
+  })
+
   it('serves every workspace hierarchy URL for direct navigation and refresh', async () => {
     for (const path of [
       '/p/project-1',
