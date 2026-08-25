@@ -113,7 +113,7 @@ export function pagesRoutes(services: AppServices): express.Router {
 
   // /p/... — workspace hierarchy routes are rendered by the web SPA.
   // Keep this fallback server-side so every project, phase, release, and task
-  // URL can be refreshed or opened directly.
+  // URL (including matrix release links) can be refreshed or opened directly.
   r.get(/^\/p(?:\/.*)?$/, (_req: Request, res: Response) => {
     sendSpa(res, services)
   })
