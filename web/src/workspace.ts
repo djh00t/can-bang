@@ -206,6 +206,50 @@ function openInfoModal(title: string, html: string): void {
   wireCopy('#copy-agent-prompt', '#agent-prompt')
 }
 
+export function renderProjectSettingsPanel(project: {
+  id: string
+  name: string
+  description: string | null
+  docId: string | null
+  docTitle: string | null
+  github: { enabled: boolean; repo: string | null; syncEnabled: boolean }
+}): string {
+  return [
+    '<div class="ws-project-settings">',
+    '<form class="panel ws-settings-form" id="project-settings-form">',
+    '<div><div class="eyebrow">Project settings</div><h3>Project details</h3><p class="muted">Keep the project identity and description current for every agent working here.</p></div>',
+    '<label>Name<input id="project-name" name="name" required maxlength="120" value="',
+    escapeHtml(project.name),
+    '"></label>',
+    '<label>Description<textarea id="project-description" name="description" maxlength="500" rows="5">',
+    escapeHtml(project.description ?? ''),
+    '</textarea></label>',
+    '<div class="ws-settings-actions"><button class="btn" type="submit">Save settings</button><span class="muted" id="project-settings-status" role="status"></span></div>',
+    '</form>',
+    '<div class="ws-project-settings-side">',
+    '<section class="panel ws-project-doc"><div class="eyebrow">Project document</div><h3>Working brief</h3>',
+    project.docId
+      ? '<a href="/d/' +
+        encodeURIComponent(project.docId) +
+        '">' +
+        escapeHtml(project.docTitle ?? 'Open project document') +
+        '</a>'
+      : '<span class="muted">No project document linked.</span>',
+    '<p class="muted">Use the Link docs control above to change the linked document.</p></section>',
+    '<section class="panel ws-project-github"><div class="eyebrow">Integrations</div><h3>GitHub Issues sync</h3>',
+    project.github.enabled
+      ? '<div class="muted">Repository <strong>' +
+        escapeHtml(project.github.repo ?? 'configured') +
+        '</strong></div><div class="muted">Sync is ' +
+        (project.github.syncEnabled ? 'enabled' : 'disabled') +
+        '.</div><button class="btn sm" id="sync-github" type="button">Sync now</button><span class="muted" id="sync-result" role="status"></span>'
+      : '<label>Repository<input id="gh-repo" placeholder="owner/name"></label><label>Personal access token<input id="gh-token" type="password" autocomplete="off"></label><button class="btn sm" id="enable-github" type="button">Enable GitHub</button>',
+    '</section>',
+    '<section class="panel ws-project-key"><div class="eyebrow">Automation</div><h3>Project API key</h3><p class="muted">Mint a project-scoped key for automation. The secret is shown once.</p><label>Label<input id="project-key-label" maxlength="80" placeholder="e.g. CI"></label><button class="btn sm" id="mint-project-key" type="button">Mint project key</button><span class="muted" id="project-key-status" role="status"></span><div id="project-key-output" class="ws-project-key-output" hidden></div></section>',
+    '</div></div>',
+  ].join('')
+}
+
 export async function mountWorkspace(root: HTMLElement): Promise<void> {
   const api = new Api()
   let me = (await api.me())?.user ?? null
@@ -220,7 +264,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
   }[] = []
   let projectId: string | null = null
   let phaseId: string | null = null
-  let view: 'overview' | 'pipeline' | 'matrix' = 'overview'
+  let view: 'overview' | 'pipeline' | 'matrix' | 'settings' = 'overview'
   let detail: 'project' | 'release' = 'project'
   let releaseId: string | null = null
   let data: ProjectData | null = null
@@ -263,7 +307,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     const r: {
       projectId: string | null
       phaseId: string | null
-      view: 'overview' | 'pipeline' | 'matrix'
+      view: 'overview' | 'pipeline' | 'matrix' | 'settings'
       releaseId: string | null
       taskId: string | null
       detail: 'project' | 'release'
@@ -279,6 +323,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
       r.projectId = segs[1]
       if (segs[2] === 'matrix') r.view = 'matrix'
       else if (segs[2] === 'pipeline') r.view = 'pipeline'
+      else if (segs[2] === 'settings') r.view = 'settings'
       else if (segs[2] === 'release' && segs[3]) {
         r.releaseId = segs[3]
         r.detail = 'release'
@@ -295,6 +340,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     if (!projectId) return '/'
     if (detail === 'release' && releaseId) return `/p/${projectId}/release/${releaseId}`
     if (view === 'matrix') return `/p/${projectId}/matrix`
+    if (view === 'settings') return `/p/${projectId}/settings`
     if (view === 'overview') return `/p/${projectId}`
     if (view === 'pipeline' && !phaseId) return `/p/${projectId}/pipeline`
     if (phaseId)
@@ -430,7 +476,7 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     render()
   }
 
-  const setView = async (v: 'overview' | 'pipeline' | 'matrix') => {
+  const setView = async (v: 'overview' | 'pipeline' | 'matrix' | 'settings') => {
     view = v
     if (v === 'matrix' && projectId) matrixData = await api.matrix(projectId)
     syncUrl()
@@ -679,11 +725,12 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
           <button class="ws-tab ${view === 'overview' ? 'on' : ''}" data-view="overview">Overview</button>
           <button class="ws-tab ${view === 'pipeline' ? 'on' : ''}" data-view="pipeline">Pipeline</button>
           <button class="ws-tab ${view === 'matrix' ? 'on' : ''}" data-view="matrix">Feature Matrix</button>
+          <button class="ws-tab ${view === 'settings' ? 'on' : ''}" data-view="settings">Settings</button>
         </div>
         <button class="btn sm" id="link-project-doc">Link docs</button>
       </div>
       <div class="ws-project-body">
-        ${view === 'overview' ? renderOverview() : view === 'pipeline' ? renderPipeline(phase, phaseTasks) : renderMatrix()}
+        ${view === 'overview' ? renderOverview() : view === 'pipeline' ? renderPipeline(phase, phaseTasks) : view === 'settings' ? renderProjectSettingsPanel(data.project) : renderMatrix()}
       </div>`
   }
 
@@ -1119,9 +1166,18 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     document.querySelectorAll<HTMLButtonElement>('[data-view]').forEach((b) => {
       b.addEventListener(
         'click',
-        () => void setView(b.dataset.view as 'overview' | 'pipeline' | 'matrix'),
+        () => void setView(b.dataset.view as 'overview' | 'pipeline' | 'matrix' | 'settings'),
       )
     })
+    document
+      .querySelector<HTMLFormElement>('#project-settings-form')
+      ?.addEventListener('submit', (event) => {
+        event.preventDefault()
+        void saveProjectSettings()
+      })
+    document
+      .querySelector<HTMLButtonElement>('#mint-project-key')
+      ?.addEventListener('click', () => void mintProjectKey())
     document.querySelectorAll<HTMLButtonElement>('[data-open-task]').forEach((b) => {
       b.addEventListener('click', () => void openTask(b.dataset.openTask!))
     })
@@ -1394,6 +1450,48 @@ export async function mountWorkspace(root: HTMLElement): Promise<void> {
     } finally {
       await loadProject()
       render()
+    }
+  }
+
+  const saveProjectSettings = async () => {
+    if (!projectId) return
+    const name =
+      (document.getElementById('project-name') as HTMLInputElement | null)?.value.trim() ?? ''
+    const description =
+      (
+        document.getElementById('project-description') as HTMLTextAreaElement | null
+      )?.value.trim() ?? ''
+    const status = document.getElementById('project-settings-status')
+    if (!name) {
+      if (status) status.textContent = 'Name is required.'
+      return
+    }
+    try {
+      await api.patchProject(projectId, { name, description: description || null })
+      await loadProject()
+      render()
+    } catch (e) {
+      if (status) status.textContent = 'Save failed: ' + (e as Error).message
+    }
+  }
+
+  const mintProjectKey = async () => {
+    if (!projectId) return
+    const label = (
+      document.getElementById('project-key-label') as HTMLInputElement | null
+    )?.value.trim()
+    const status = document.getElementById('project-key-status')
+    const output = document.getElementById('project-key-output')
+    try {
+      const result = await api.createProjectKey(projectId, label || undefined)
+      if (output) {
+        output.hidden = false
+        output.innerHTML =
+          '<strong>New project key (shown once)</strong><code>' + escapeHtml(result.key) + '</code>'
+      }
+      if (status) status.textContent = 'Store this secret securely before leaving the page.'
+    } catch (e) {
+      if (status) status.textContent = 'Mint failed: ' + (e as Error).message
     }
   }
 

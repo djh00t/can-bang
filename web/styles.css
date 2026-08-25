@@ -1161,6 +1161,77 @@ textarea:focus {
   padding: 3px;
 }
 
+.ws-project-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  gap: 14px;
+}
+
+.ws-settings-form,
+.ws-project-settings-side {
+  display: grid;
+  gap: 14px;
+}
+
+.ws-settings-form {
+  align-content: start;
+}
+
+.ws-settings-form h3,
+.ws-project-settings-side h3 {
+  margin: 4px 0;
+}
+
+.ws-settings-form label,
+.ws-project-settings-side label {
+  display: grid;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ws-settings-form input,
+.ws-settings-form textarea,
+.ws-project-settings-side input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ws-settings-form textarea {
+  resize: vertical;
+}
+
+.ws-settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ws-project-key-output {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.ws-project-key-output code {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .ws-project-settings {
+    grid-template-columns: 1fr;
+  }
+
+  .ws-settings-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 .ws-tab {
   font-family: inherit;
   font-size: 12.5px;
