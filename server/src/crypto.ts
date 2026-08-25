@@ -29,6 +29,7 @@ export function safeEqual(a: string, b: string): boolean {
 export function stripSecrets(text: string): string {
   return text
     .replace(/mgn_[A-Za-z0-9_-]{12,}/g, 'mgn_…')
+    .replace(/pk_[A-Za-z0-9_-]{12,}/g, 'pk_…')
     .replace(/whsec_[A-Za-z0-9_-]{12,}/g, 'whsec_…')
     .replace(/[?&]key=[A-Za-z0-9_-]{12,}/g, '$1key=…')
     .replace(/(Authorization|Bearer)\s+[A-Za-z0-9._-]{12,}/gi, '$1 …')

@@ -1,15 +1,15 @@
 import request from 'supertest'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { makeCtx, account, type TestCtx } from './helpers.js'
+import { closeCtx, makeCtx, account, type TestCtx } from './helpers.js'
 import { backfillProjectDocs } from '../src/seed.js'
 
 describe('workspace hierarchy', () => {
   let ctx: TestCtx
-  beforeEach(() => {
-    ctx = makeCtx()
+  beforeEach(async () => {
+    ctx = await makeCtx()
   })
-  afterEach(() => {
-    ctx.db.close()
+  afterEach(async () => {
+    await closeCtx(ctx)
   })
 
   it('creates projects, phases, releases, tasks and returns an overview', async () => {
@@ -62,7 +62,10 @@ describe('workspace hierarchy', () => {
     const releasePatch = await agent
       .patch(`/api/releases/${releaseId}`)
       .send({ demo_status: 'pass', notes: 'all green' })
-    expect(releasePatch.status).toBe(200)
+    expect(
+      releasePatch.status,
+      `${releasePatch.status} ${releasePatch.text} ${JSON.stringify(releasePatch.headers)}`,
+    ).toBe(200)
     const taskPatch = await agent.patch(`/api/tasks/${taskId}`).send({ status: 'done' })
     expect(taskPatch.status).toBe(200)
     const overview = await agent.get(`/api/projects/${pid}`)
@@ -71,14 +74,139 @@ describe('workspace hierarchy', () => {
     expect(overview.body.tasks[0].status).toBe('done')
   })
 
+  it('mints project API keys with project-only access', async () => {
+    const { agent } = await account(ctx.app, 'project-key-owner')
+    const projectId = (await agent.post('/api/projects').send({ name: 'Scoped project' })).body
+      .project.id as string
+    const otherProjectId = (await agent.post('/api/projects').send({ name: 'Other project' })).body
+      .project.id as string
+    const phaseId = (await agent.post(`/api/projects/${projectId}/phases`).send({ name: 'MVP' }))
+      .body.phase.id as string
+    const externalDoc = await agent
+      .post('/api/docs')
+      .send({ title: 'External', content: '# External\n' })
+
+    const minted = await agent.post(`/api/projects/${projectId}/api-keys`).send({ label: 'agent' })
+    expect(minted.status).toBe(201)
+    expect(minted.body.key).toMatch(/^pk_[A-Za-z0-9_-]+$/)
+    expect(minted.body.label).toBe('agent')
+    const key = minted.body.key as string
+    const auth = { authorization: `Bearer ${key}` }
+    const keyInfo = await request(ctx.app).get('/api/project-key').set(auth)
+    expect(keyInfo.status).toBe(200)
+    expect(keyInfo.body.projectId).toBe(projectId)
+    const listed = await agent.get(`/api/projects/${projectId}/api-keys`)
+    expect(listed.status).toBe(200)
+    expect(listed.body.keys).toHaveLength(1)
+    expect(listed.body.keys[0].revoked_at).toBeNull()
+
+    const project = await request(ctx.app).get(`/api/projects/${projectId}`).set(auth)
+    expect(project.status).toBe(200)
+    expect(project.body.project.apiKeyCount).toBe(1)
+    const task = await request(ctx.app)
+      .post(`/api/phases/${phaseId}/tasks`)
+      .set(auth)
+      .send({ title: 'Agent task' })
+    expect(task.status).toBe(201)
+    const taskDetail = await request(ctx.app).get(`/api/tasks/${task.body.task.id}`).set(auth)
+    expect(taskDetail.status).toBe(200)
+    const unsafeLink = await request(ctx.app)
+      .patch(`/api/tasks/${task.body.task.id}`)
+      .set(auth)
+      .send({ doc_id: externalDoc.body.doc.id })
+    expect(unsafeLink.status).toBe(403)
+    expect((await request(ctx.app).get(`/api/projects/${otherProjectId}`).set(auth)).status).toBe(
+      404,
+    )
+    expect((await request(ctx.app).get('/api/projects').set(auth)).status).toBe(401)
+    expect((await request(ctx.app).get('/api/me').set(auth)).status).toBe(401)
+    expect(
+      (await request(ctx.app).post(`/api/projects/${projectId}/api-keys`).set(auth)).status,
+    ).toBe(401)
+    const revoked = await agent.delete(
+      `/api/projects/${projectId}/api-keys/${listed.body.keys[0].id}`,
+    )
+    expect(revoked.status).toBe(200)
+    expect((await request(ctx.app).get(`/api/projects/${projectId}`).set(auth)).status).toBe(401)
+    expect(
+      (await agent.get(`/api/projects/${projectId}/api-keys`)).body.keys[0].revoked_at,
+    ).toBeTypeOf('number')
+  })
+
+  it('persists project settings, configures GitHub, and mints owner-scoped keys', async () => {
+    const { agent: owner } = await account(ctx.app, 'settings-owner')
+    const { agent: other } = await account(ctx.app, 'settings-other')
+    const pid = (
+      await owner.post('/api/projects').send({ name: 'Before', description: 'Old description' })
+    ).body.project.id as string
+
+    const patch = await owner
+      .patch('/api/projects/' + pid)
+      .send({ name: 'After', description: 'New description' })
+    expect(patch.status).toBe(200)
+    const github = await owner.patch('/api/projects/' + pid + '/github').send({
+      enabled: true,
+      repo: 'acme/demo',
+      token: 'test-token',
+    })
+    expect(github.status).toBe(200)
+
+    const first = await owner.post('/api/projects/' + pid + '/key').send({ label: 'automation' })
+    expect(first.status).toBe(201)
+    expect(first.body.key).toMatch(/^pbk_[A-Za-z0-9_-]+$/)
+    const second = await owner.post('/api/projects/' + pid + '/key').send({ label: 'release' })
+    expect(second.status).toBe(201)
+    expect(second.body.key).not.toBe(first.body.key)
+
+    const overview = await owner.get('/api/projects/' + pid)
+    expect(overview.body.project.name).toBe('After')
+    expect(overview.body.project.description).toBe('New description')
+    expect(overview.body.project.github).toMatchObject({ enabled: true, repo: 'acme/demo' })
+    expect(JSON.stringify(overview.body)).not.toContain(first.body.key)
+    const stored = ctx.db
+      .prepare(
+        'SELECT project_id, key_hash, label FROM project_keys WHERE project_id=? ORDER BY created_at',
+      )
+      .all(pid) as { project_id: string; key_hash: string; label: string | null }[]
+    expect(stored).toHaveLength(2)
+    expect(stored[0]).toMatchObject({ project_id: pid, label: 'automation' })
+    expect(stored[0].key_hash).not.toBe(first.body.key)
+
+    const keyOverview = await request(ctx.app)
+      .get('/api/projects/' + pid)
+      .set('authorization', 'Bearer ' + first.body.key)
+    expect(keyOverview.status).toBe(200)
+    expect(keyOverview.body.project.id).toBe(pid)
+    const accountRoute = await request(ctx.app)
+      .get('/api/me')
+      .set('authorization', 'Bearer ' + first.body.key)
+    expect(accountRoute.status).toBe(401)
+    const projectList = await request(ctx.app)
+      .get('/api/projects')
+      .set('authorization', 'Bearer ' + first.body.key)
+    expect(projectList.status).toBe(403)
+    const otherPid = (await other.post('/api/projects').send({ name: 'Other project' })).body
+      .project.id as string
+    const crossProject = await request(ctx.app)
+      .get('/api/projects/' + otherPid)
+      .set('authorization', 'Bearer ' + first.body.key)
+    expect(crossProject.status).toBe(404)
+    const denied = await other
+      .post('/api/projects/' + pid + '/key')
+      .send({ label: 'wrong-account' })
+    expect(denied.status).toBe(404)
+  })
+
   it('aggregates the feature-status matrix across phases', async () => {
     const { agent } = await account(ctx.app, 'owner-matrix')
     const pid = (await agent.post('/api/projects').send({ name: 'Gamma' })).body.project
       .id as string
-    const p1 = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'MVP' })).body.phase
-      .id as string
-    const p2 = (await agent.post(`/api/projects/${pid}/phases`).send({ name: '0.2' })).body.phase
-      .id as string
+    const p1Response = await agent.post(`/api/projects/${pid}/phases`).send({ name: 'MVP' })
+    expect(p1Response.status, JSON.stringify(p1Response.body)).toBe(201)
+    const p1 = p1Response.body.phase.id as string
+    const p2Response = await agent.post(`/api/projects/${pid}/phases`).send({ name: '0.2' })
+    expect(p2Response.status, JSON.stringify(p2Response.body)).toBe(201)
+    const p2 = p2Response.body.phase.id as string
     const mkTask = (phaseId: string, title: string, feature: string, status: string) =>
       agent.post(`/api/phases/${phaseId}/tasks`).send({ title, feature, status })
     await mkTask(p1, 'a', 'Docs', 'done')
@@ -92,6 +220,53 @@ describe('workspace hierarchy', () => {
     expect(docs.cells[1].status).toBe('in-progress')
     const auth = matrix.body.rows.find((r: { feature: string }) => r.feature === 'Auth')
     expect(auth.cells[1].status).toBe('planned')
+  })
+
+  it('aggregates project burndown history across phases', async () => {
+    const { agent } = await account(ctx.app, 'owner-project-burndown')
+    const pid = (await agent.post('/api/projects').send({ name: 'Project burndown' })).body.project
+      .id as string
+    const p1 = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'MVP' })).body.phase
+      .id as string
+    const p2 = (await agent.post(`/api/projects/${pid}/phases`).send({ name: '0.2' })).body.phase
+      .id as string
+    await agent.post(`/api/phases/${p1}/tasks`).send({ title: 'Open MVP task', status: 'todo' })
+    await agent.post(`/api/phases/${p2}/tasks`).send({ title: 'Done 0.2 task', status: 'done' })
+    await agent.post(`/api/phases/${p2}/tasks`).send({ title: 'Doing 0.2 task', status: 'doing' })
+
+    const burndown = await agent.get(`/api/projects/${pid}/burndown?days=30`)
+    expect(burndown.status).toBe(200)
+    expect(burndown.body.total).toBe(3)
+    expect(burndown.body.current).toBe(2)
+    expect(burndown.body.points.length).toBeGreaterThan(0)
+    expect(burndown.body.points.some((point: { remaining: number }) => point.remaining === 2)).toBe(
+      true,
+    )
+
+    const { agent: other } = await account(ctx.app, 'other-project-burndown')
+    expect((await other.get(`/api/projects/${pid}/burndown`)).status).toBe(404)
+  })
+
+  it('counts a task again after it is reopened', async () => {
+    const { agent } = await account(ctx.app, 'owner-project-burndown-reopen')
+    const pid = (await agent.post('/api/projects').send({ name: 'Reopen burndown' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'MVP' })).body
+      .phase.id as string
+    const taskId = (
+      await agent.post(`/api/phases/${phaseId}/tasks`).send({ title: 'Reopen me', status: 'todo' })
+    ).body.task.id as string
+
+    expect((await agent.patch(`/api/tasks/${taskId}`).send({ status: 'done' })).status).toBe(200)
+    expect((await agent.patch(`/api/tasks/${taskId}`).send({ status: 'doing' })).status).toBe(200)
+
+    const burndown = await agent.get(`/api/projects/${pid}/burndown?days=30`)
+    expect(burndown.status).toBe(200)
+    expect(burndown.body.total).toBe(1)
+    expect(burndown.body.current).toBe(1)
+    expect(burndown.body.points.some((point: { remaining: number }) => point.remaining === 1)).toBe(
+      true,
+    )
   })
 
   it('scopes workspace data to the owning account', async () => {
@@ -151,8 +326,12 @@ describe('workspace hierarchy', () => {
     const { agent } = await account(ctx.app, 'priority-clear')
     const pid = (await agent.post('/api/projects').send({ name: 'Priority clear' })).body.project
       .id as string
-    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
-      .phase.id as string
+    const phaseResponse = await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })
+    expect(
+      phaseResponse.status,
+      `${phaseResponse.status} ${phaseResponse.text} ${JSON.stringify(phaseResponse.headers)}`,
+    ).toBe(201)
+    const phaseId = phaseResponse.body.phase.id as string
     const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({
       title: 'Clear priority',
       priority: 'high',
@@ -327,6 +506,44 @@ describe('workspace hierarchy', () => {
     await agent.get(`/api/projects/${pid}`) // reindex
     const after = await agent.get(`/api/phases/${phaseId}/burndown?days=30`)
     expect(after.body.current).toBe(0)
+    const doneEvent = ctx.db
+      .prepare("SELECT COUNT(*) AS c FROM task_events WHERE task_id=? AND status='done'")
+      .get(taskId) as { c: number }
+    expect(doneEvent.c).toBeGreaterThan(0)
+    const watermark = ctx.db
+      .prepare(
+        'SELECT p.board_indexed_at, d.updated_at FROM projects p JOIN docs d ON d.id=p.doc_id WHERE p.id=?',
+      )
+      .get(pid) as { board_indexed_at: number; updated_at: number }
+    expect(watermark.board_indexed_at).toBe(watermark.updated_at)
+  })
+
+  it('reindexes a doc board edit made in the same millisecond', async () => {
+    const { agent } = await account(ctx.app, 'same-tick-owner')
+    const pid = (await agent.post('/api/projects').send({ name: 'Same tick' })).body.project
+      .id as string
+    const phaseId = (await agent.post(`/api/projects/${pid}/phases`).send({ name: 'P1' })).body
+      .phase.id as string
+    const task = await agent.post(`/api/phases/${phaseId}/tasks`).send({ title: 'Same-tick task' })
+    const taskId = task.body.task.id as string
+    const overview = await agent.get(`/api/projects/${pid}`)
+    const docId = overview.body.project.docId as string
+    const sameTick = Date.now() + 100_000
+    ctx.db.prepare('UPDATE docs SET updated_at=? WHERE id=?').run(sameTick, docId)
+    ctx.db.prepare('UPDATE projects SET board_indexed_at=? WHERE id=?').run(sameTick, pid)
+    const doc = await agent.get(`/api/docs/${docId}/content`)
+    const card = `- [ ] Same-tick task\n  task: ${taskId}\n  phase: P1`
+    expect(doc.text).toContain(card)
+    const doneCard = card.replace('- [ ]', '- [x]')
+    const content = doc.text.replace(card, '').replace('## Done\n', `## Done\n${doneCard}\n`)
+    const put = await agent
+      .put(`/api/docs/${docId}/content`)
+      .set('if-match', doc.headers['x-doc-version'])
+      .send({ content })
+    expect(put.status).toBe(200)
+
+    const after = await agent.get(`/api/projects/${pid}`)
+    expect(after.body.tasks.find((item: { id: string }) => item.id === taskId).status).toBe('done')
     const doneEvent = ctx.db
       .prepare("SELECT COUNT(*) AS c FROM task_events WHERE task_id=? AND status='done'")
       .get(taskId) as { c: number }
