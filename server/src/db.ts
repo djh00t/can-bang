@@ -444,14 +444,16 @@ export function bumpContent(
   kind: 'live' | 'plain',
   label?: string,
 ): { version: string; revisionId: string } {
-  const row = db.prepare('SELECT content_seq, suggestion_seq FROM docs WHERE id=?').get(docId) as
-    { content_seq: number; suggestion_seq: number } | undefined
+  const row = db
+    .prepare('SELECT content_seq, suggestion_seq, updated_at FROM docs WHERE id=?')
+    .get(docId) as { content_seq: number; suggestion_seq: number; updated_at: number } | undefined
   const contentSeq = (row?.content_seq ?? 0) + 1
+  const updatedAt = Math.max(now(), (row?.updated_at ?? 0) + 1)
   db.prepare('UPDATE docs SET content=?, content_seq=?, kind=?, updated_at=? WHERE id=?').run(
     content,
     contentSeq,
     kind,
-    now(),
+    updatedAt,
     docId,
   )
   const revisionId = insertRevision(db, docId, content, author, guest, label)

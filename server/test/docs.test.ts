@@ -1,14 +1,14 @@
 import request from 'supertest'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { makeCtx, anonDoc, mintRole, account, type TestCtx } from './helpers.js'
+import { closeCtx, makeCtx, anonDoc, mintRole, account, type TestCtx } from './helpers.js'
 
 describe('docs core', () => {
   let ctx: TestCtx
-  beforeEach(() => {
-    ctx = makeCtx()
+  beforeEach(async () => {
+    ctx = await makeCtx()
   })
-  afterEach(() => {
-    ctx.db.close()
+  afterEach(async () => {
+    await closeCtx(ctx)
   })
 
   it('creates anonymous docs via POST /new and redirects via GET /new', async () => {

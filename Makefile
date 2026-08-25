@@ -1,11 +1,14 @@
-.PHONY: install check quality-gates clean build demo backup restore review
+.PHONY: install core-test check quality-gates clean build demo backup restore review
 
 install:
 	pnpm install --frozen-lockfile
 
+core-test:
+	pnpm --filter @can-bang/core test
+
 check:
 	pnpm --filter @can-bang/core build
-	pnpm --filter @can-bang/core test
+	$(MAKE) core-test
 	pnpm --filter @can-bang/web build
 	pnpm --filter @can-bang/web test
 	pnpm typecheck
